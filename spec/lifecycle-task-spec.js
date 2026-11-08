@@ -133,13 +133,18 @@ describe("Tasks task generation and shutdown", () => {
       return;
     }
     spawn.and.callThrough();
+    const descendantSource = [
+      "process.on('SIGTERM',()=>{});",
+      "process.stdout.write('ready\\n');",
+      "setInterval(()=>{},1000);",
+    ].join("\n");
     provider.prepare = () => ({
       cmd: "node",
       args: [
         "-e",
         [
           "const cp = require('node:child_process');",
-          "const child = cp.spawn(process.execPath, ['-e', \"process.on('SIGTERM',()=>{});process.stdout.write('ready\\n');setInterval(()=>{},1000)\"], {stdio:['ignore','pipe','ignore']});",
+          `const child = cp.spawn(process.execPath, ['-e', ${JSON.stringify(descendantSource)}], {stdio:['ignore','pipe','ignore']});`,
           "child.stdout.once('data',()=>{console.log(child.pid);child.stdout.destroy()});",
           "setInterval(()=>{},1000)",
         ].join(""),
