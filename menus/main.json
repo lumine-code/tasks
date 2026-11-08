@@ -4,11 +4,20 @@
       "label": "View",
       "submenu": [
         {
+          "label": "Open or Focus View",
+          "submenu": [
+            {
+              "label": "Tasks",
+              "command": "tasks:toggle-focus"
+            }
+          ]
+        },
+        {
           "label": "Toggle View",
           "submenu": [
             {
-              "label": "Build Output",
-              "command": "build:toggle-panel",
+              "label": "Tasks",
+              "command": "tasks:toggle",
               "group": "panels",
               "order": 10
             }
@@ -20,45 +29,125 @@
       "label": "Packages",
       "submenu": [
         {
-          "label": "Build",
+          "label": "Tasks",
           "submenu": [
             {
-              "label": "Run Active Target",
-              "command": "build:trigger"
+              "label": "Run Task…",
+              "command": "tasks:run-task"
             },
             {
-              "label": "Stop Build",
-              "command": "build:stop"
+              "label": "Rerun Task",
+              "command": "tasks:rerun-task"
             },
             {
-              "type": "separator"
+              "label": "Stop Selected Task",
+              "command": "tasks:stop"
             },
             {
-              "label": "Select Target…",
-              "command": "build:select-target"
-            },
-            {
-              "label": "Refresh Targets",
-              "command": "build:refresh-targets"
+              "label": "Stop All Tasks",
+              "command": "tasks:stop-all"
             },
             {
               "type": "separator"
             },
             {
-              "label": "Toggle Output Panel",
-              "command": "build:toggle-panel"
+              "label": "Refresh Tasks",
+              "command": "tasks:refresh-tasks"
+            },
+            {
+              "label": "Back to History",
+              "command": "tasks:back-to-history"
+            },
+            {
+              "label": "Observed Documents",
+              "submenu": [
+                {
+                  "label": "Show List…",
+                  "command": "tasks:observed-files"
+                },
+                {
+                  "label": "Open Selected Source",
+                  "command": "tasks:open-observed-file"
+                },
+                {
+                  "label": "Stop Observing Selected Document",
+                  "command": "tasks:unobserve-selected-file"
+                },
+                {
+                  "label": "Stop Observing All Documents",
+                  "command": "tasks:clear-observed"
+                }
+              ]
+            },
+            {
+              "type": "separator"
+            },
+            {
+              "label": "Open Execution Details",
+              "command": "tasks:open-details"
+            },
+            {
+              "label": "Toggle Tasks",
+              "command": "tasks:toggle"
+            },
+            {
+              "label": "Toggle Tasks Focus",
+              "command": "tasks:toggle-focus"
+            },
+            {
+              "type": "separator"
             },
             {
               "label": "Next Diagnostic",
-              "command": "build:next-error"
+              "command": "tasks:next-error"
             },
             {
               "label": "Previous Diagnostic",
-              "command": "build:previous-error"
+              "command": "tasks:previous-error"
+            },
+            {
+              "type": "separator"
+            },
+            {
+              "label": "Stop Task",
+              "command": "tasks:stop-task"
+            },
+            {
+              "label": "Toggle Log",
+              "command": "tasks:toggle-log"
+            },
+            {
+              "label": "Copy Log",
+              "command": "tasks:copy-log"
+            },
+            {
+              "label": "Remove Log",
+              "command": "tasks:remove-log"
+            },
+            {
+              "label": "Clear List",
+              "command": "tasks:clear-list"
+            },
+            {
+              "label": "Clear All Logs",
+              "command": "tasks:clear-logs"
             }
           ]
         }
       ]
     }
-  ]
+  ],
+  "context-menu": {
+    ".tasks-panel .tasks-run-row": [
+      { "type": "separator" },
+      { "label": "Open Details", "command": "tasks:open-details" },
+      { "type": "separator" },
+      { "label": "Run Again", "command": "tasks:rerun-task" },
+      { "label": "Stop", "command": "tasks:stop-task" },
+      { "type": "separator" },
+      { "label": "Copy Log", "command": "tasks:copy-log" },
+      { "label": "Remove Log", "command": "tasks:remove-log" },
+      { "type": "separator" }
+    ]
+  }
 }

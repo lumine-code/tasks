@@ -1,0 +1,12 @@
+{
+  "lumine-workspace": {
+    "alt-b": "tasks:toggle-focus"
+  },
+  // Both normal and mini editors intentionally keep the global Tasks focus shortcut on macOS.
+  ".platform-darwin lumine-text-editor:not([mini]), .platform-darwin lumine-text-editor[mini]": {
+    "alt-b": "tasks:toggle-focus"
+  },
+  ".tasks-targets lumine-text-editor[mini]": {
+    "f5": "tasks:refresh-tasks"
+  }
+}

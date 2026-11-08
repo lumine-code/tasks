@@ -1,18 +1,17 @@
 {
-  "name": "build",
+  "name": "tasks",
   "author": "lumine-code",
   "version": "1.0.0",
-  "description": "Run project build targets and surface their output and diagnostics.",
+  "description": "Run project tasks and surface their output and diagnostics.",
   "keywords": [
     "compile",
-    "tasks",
     "runner",
     "diagnostics",
     "automation"
   ],
-  "repository": "https://github.com/lumine-code/build",
+  "repository": "https://github.com/lumine-code/tasks",
   "bugs": {
-    "url": "https://github.com/lumine-code/build/issues"
+    "url": "https://github.com/lumine-code/tasks/issues"
   },
   "license": "MIT",
   "main": "./lib/main",
@@ -29,7 +28,7 @@
     "lumine": "^1.0.0"
   },
   "deserializers": {
-    "build/BuildPanel": "deserializeBuildPanel"
+    "tasks/TasksPanel": "deserializeTasksPanel"
   },
   "scripts": {
     "test": "lumine --test spec",
@@ -38,33 +37,18 @@
     "format:check": "prettier --check ."
   },
   "configSchema": {
+    "additionalConfigFiles": {
+      "title": "Additional Task Files",
+      "description": "Additional relative file names or paths to discover recursively alongside .lumine/tasks.json. All matching files contribute tasks.",
+      "type": "array",
+      "default": [],
+      "items": {
+        "type": "string"
+      }
+    },
     "saveOnBuild": {
       "title": "Save Before Running",
       "description": "Save modified editors before starting a target.",
-      "type": "boolean",
-      "default": true
-    },
-    "buildOnSave": {
-      "title": "Run After Saving",
-      "description": "Run the active target whenever a project editor is saved.",
-      "type": "boolean",
-      "default": false
-    },
-    "panelVisibility": {
-      "title": "Panel Visibility",
-      "description": "Choose when the output panel appears.",
-      "type": "string",
-      "enum": [
-        "Show on Build",
-        "Show on Error",
-        "Keep Visible",
-        "Hidden"
-      ],
-      "default": "Show on Build"
-    },
-    "clearOnBuild": {
-      "title": "Clear Output Before Running",
-      "description": "Remove output left by the previous target.",
       "type": "boolean",
       "default": true
     },
@@ -81,20 +65,39 @@
       "minimum": 100,
       "default": 10000
     },
+    "maxOutputCharacters": {
+      "title": "Maximum Log Characters",
+      "description": "Limit each retained log and compiler stream in memory.",
+      "type": "integer",
+      "minimum": 1000,
+      "default": 2000000
+    },
+    "maxHistory": {
+      "title": "Retained Task Logs",
+      "description": "Keep this many completed task logs alongside active tasks.",
+      "type": "integer",
+      "minimum": 1,
+      "default": 50
+    },
     "statusBar": {
       "title": "Status Bar Indicator",
-      "description": "Show the active target and its current state in the status bar.",
+      "description": "Show the shared Tasks control for tasks, logs and observed documents.",
       "type": "boolean",
-      "default": false
+      "default": true
     },
     "statusBarPriority": {
       "title": "Status Bar Priority",
       "description": "Set the placement priority of the status-bar indicator.",
       "type": "integer",
-      "default": 100
+      "default": 200
     }
   },
   "providedServices": {
+    "tasks": {
+      "versions": {
+        "1.0.0": "provideTasks"
+      }
+    },
     "background-tips.provider": {
       "versions": {
         "1.0.0": "provideBackgroundTips"
@@ -102,11 +105,6 @@
     }
   },
   "consumedServices": {
-    "build.provider": {
-      "versions": {
-        "^1.0.0": "consumeBuildProvider"
-      }
-    },
     "status-bar": {
       "versions": {
         "^2.0.0": "consumeStatusBar"

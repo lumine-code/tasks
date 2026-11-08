@@ -2,26 +2,27 @@ const fs = require("node:fs/promises"),
   os = require("node:os"),
   path = require("node:path");
 
-describe("Build working directory placeholders", () => {
+describe("Tasks working directory placeholders", () => {
   let directory, editor, main;
   beforeEach(async () => {
     jasmine.useRealClock();
-    directory = await fs.mkdtemp(path.join(os.tmpdir(), "build-cwd-owned-"));
+    directory = await fs.mkdtemp(path.join(os.tmpdir(), "tasks-cwd-owned-"));
     await fs.mkdir(path.join(directory, "source"));
+    await fs.mkdir(path.join(directory, ".lumine"));
     await fs.writeFile(path.join(directory, "source", "main.js"), "// owned file\n");
     lumine.project.setPaths([directory]);
-    lumine.config.set("build.saveOnBuild", false);
+    lumine.config.set("tasks.saveOnBuild", false);
     editor = await lumine.workspace.open(path.join(directory, "source", "main.js"));
-    main = (await lumine.packages.activatePackage("build")).mainModule;
+    main = (await lumine.packages.activatePackage("tasks")).mainModule;
   });
   afterEach(async () => {
-    await lumine.packages.deactivatePackage("build");
+    await lumine.packages.deactivatePackage("tasks");
     editor.destroy();
     lumine.project.setPaths([]);
     const target = path.resolve(directory);
     if (
       path.dirname(target) !== path.resolve(os.tmpdir()) ||
-      !path.basename(target).startsWith("build-cwd-owned-")
+      !path.basename(target).startsWith("tasks-cwd-owned-")
     ) {
       throw new Error("Unsafe working directory fixture cleanup");
     }
@@ -34,7 +35,7 @@ describe("Build working directory placeholders", () => {
   ]) {
     it(`runs the actual Node target in ${cwd}`, async () => {
       await fs.writeFile(
-        path.join(directory, ".lumine-build.json"),
+        path.join(directory, ".lumine/tasks.json"),
         JSON.stringify({
           name: "Owned cwd",
           cmd: "node",
@@ -43,17 +44,11 @@ describe("Build working directory placeholders", () => {
         }),
       );
       await main.refreshTargets();
-      const child = await main.runActiveTarget();
-      const outcome = await new Promise((resolve) => {
-        let error;
-        child.once("error", (value) => {
-          error = value;
-        });
-        child.once("close", (code) => resolve(error ? { error } : { code }));
-      });
-      expect(outcome).toEqual({ code: 0 });
-      const actual = main.panel.getText().split("\n").slice(1).join("\n");
-      if (outcome.code === 0) {
+      const job = await main.runTarget(main.targets[0]);
+      await job.completion;
+      expect(job.state).toBe("passed");
+      const actual = job.stdout;
+      if (job.code === 0) {
         expect(await fs.realpath(actual)).toBe(await fs.realpath(path.join(directory, expected)));
       }
     });

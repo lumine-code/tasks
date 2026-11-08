@@ -1,4 +1,4 @@
-.build-panel {
+.tasks-panel {
   display: flex;
   flex-direction: column;
   width: 100%;
@@ -8,39 +8,43 @@
   overflow: hidden;
   color: var(--text-color);
   background: var(--tool-panel-background-color, var(--base-background-color));
-  --build-state-color: var(--text-color-subtle);
+  font-family: var(--ui-font-family);
+  font-size: var(--ui-font-size);
+  --tasks-state-color: var(--text-color-subtle);
+  --tasks-run-columns: 8em 8em 7em minmax(0, 1fr) minmax(0, 1.4fr);
 }
 
-.build-panel .build-panel-header {
+.tasks-panel .tasks-panel-header {
   display: flex;
   flex: none;
   flex-wrap: wrap;
-  gap: 6px 12px;
+  gap: calc(var(--ui-spacing) / 2) var(--ui-spacing);
   align-items: center;
-  min-height: 36px;
-  padding: 6px 10px;
+  min-height: calc(var(--ui-control-height) + var(--ui-spacing));
+  padding: calc(var(--ui-spacing) / 2) var(--ui-spacing);
   border-bottom: 1px solid var(--base-border-color);
+  user-select: none;
 }
 
-.build-panel .build-panel-state {
+.tasks-panel .tasks-panel-state {
   display: inline-flex;
   flex: none;
-  gap: 6px;
+  gap: calc(var(--ui-spacing) / 2);
   align-items: center;
-  color: var(--build-state-color);
+  color: var(--tasks-state-color);
   white-space: nowrap;
 }
 
-.build-panel .build-panel-state-dot {
+.tasks-panel .tasks-panel-state-dot {
   flex: none;
-  width: 6px;
-  height: 6px;
+  width: 0.45em;
+  height: 0.45em;
   border-radius: 50%;
   background: currentColor;
 }
 
-.build-panel .build-panel-title {
-  flex: 1 1 12em;
+.tasks-panel .tasks-panel-title {
+  flex: 1 1 10em;
   min-width: 0;
   overflow: hidden;
   font-weight: 600;
@@ -48,109 +52,365 @@
   white-space: nowrap;
 }
 
-.build-panel .build-panel-summary {
+.tasks-panel .tasks-panel-summary {
+  min-width: 0;
+  overflow: hidden;
   color: var(--text-color-subtle);
-  font-size: 0.9em;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.build-panel .build-panel-actions {
+.tasks-panel .tasks-panel-actions {
   display: flex;
   flex: none;
-  gap: 4px;
+  gap: calc(var(--ui-spacing) / 2);
   align-items: center;
 }
 
-.build-panel .build-panel-body {
+.tasks-panel .tasks-panel-list-view,
+.tasks-panel .tasks-panel-details {
   display: flex;
   flex: 1;
+  flex-direction: column;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
 }
 
-.build-panel .build-output {
+.tasks-panel .tasks-panel-list-view {
+  user-select: none;
+}
+
+.tasks-panel .tasks-panel-details {
+  background-color: var(--syntax-background-color);
+}
+
+.tasks-panel .tasks-run-table {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  table-layout: fixed;
+}
+
+.tasks-panel .tasks-run-table > thead {
+  display: block;
+  flex: none;
+}
+
+.tasks-panel .tasks-panel-list-view.is-empty .tasks-run-table {
+  flex: none;
+}
+
+.tasks-panel .tasks-run-columns,
+.tasks-panel .tasks-run-row {
+  display: grid;
+  grid-template-columns: var(--tasks-run-columns);
+  width: 100%;
+}
+
+.tasks-panel .tasks-run-columns > th:last-child {
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  padding: 0;
+}
+
+.tasks-panel .tasks-run-columns > th:last-child .data-table-sort {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tasks-panel .tasks-run-controls,
+.tasks-panel .tasks-run-filters {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: stretch;
+}
+
+.tasks-panel .tasks-run-controls {
+  margin-inline-start: auto;
+}
+
+.tasks-panel .tasks-status-filter {
+  --tasks-filter-color: var(--text-color-subtle);
+  position: relative;
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  margin: 0;
+  border-inline-start: 1px solid var(--base-border-color);
+  font-size: 0.9em;
+  cursor: default;
+  user-select: none;
+}
+
+/* Keep the native checkbox keyboard-accessible; the label paints its strip. */
+.tasks-panel .tasks-status-filter > .input-toggle {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+  border: 0;
+  white-space: nowrap;
+}
+
+.tasks-panel .tasks-status-filter[data-status="running"] {
+  --tasks-filter-color: var(--text-color-info);
+}
+
+.tasks-panel .tasks-status-filter[data-status="passed"] {
+  --tasks-filter-color: var(--text-color-success);
+}
+
+.tasks-panel .tasks-status-filter[data-status="failed"] {
+  --tasks-filter-color: var(--text-color-error);
+}
+
+.tasks-panel .tasks-status-filter[data-status="cancelled"] {
+  --tasks-filter-color: var(--text-color-warning);
+}
+
+.tasks-panel .tasks-status-filter:hover {
+  background-color: rgb(from var(--tasks-filter-color) r g b / 0.1);
+}
+
+.tasks-panel .tasks-status-filter:has(input:checked) {
+  background-color: rgb(from var(--tasks-filter-color) r g b / 0.2);
+  font-weight: bold;
+}
+
+.tasks-panel .tasks-status-filter:has(input:checked):hover {
+  background-color: rgb(from var(--tasks-filter-color) r g b / 0.3);
+}
+
+.tasks-panel .tasks-list-action {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 2em;
+  padding: 0;
+  border: 0;
+  border-inline-start: 1px solid var(--base-border-color);
+  border-radius: 0;
+  color: var(--text-color);
+  background: transparent;
+  font: inherit;
+  cursor: default;
+}
+
+.tasks-panel .tasks-list-action::before {
+  width: auto;
+  margin: 0;
+}
+
+.tasks-panel .tasks-list-action:hover:not(:disabled) {
+  background-color: rgb(from var(--text-color-highlight) r g b / 0.1);
+}
+
+.tasks-panel .tasks-status-filter:has(input:focus-visible),
+.tasks-panel .tasks-list-action:focus-visible {
+  outline: 1px solid var(--text-color-highlight);
+  outline-offset: -2px;
+}
+
+.tasks-panel .tasks-list-action:disabled {
+  color: var(--text-color-subtle);
+  opacity: 0.5;
+}
+
+.tasks-panel .tasks-run-list {
+  display: block;
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overflow-anchor: none;
+}
+
+.tasks-panel .tasks-run-row {
+  --tasks-state-color: var(--text-color-subtle);
+}
+
+.tasks-panel .tasks-run-row > td {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tasks-panel .tasks-run-state {
+  color: var(--tasks-state-color);
+}
+
+.tasks-panel .tasks-run-source {
+  color: var(--text-color-subtle);
+}
+
+.tasks-panel .tasks-run-started,
+.tasks-panel .tasks-run-duration {
+  font-variant-numeric: tabular-nums;
+}
+
+.tasks-panel .task-output {
   flex: 1;
   min-width: 0;
   min-height: 0;
   margin: 0;
-  padding: 10px 12px;
+  padding: var(--ui-spacing);
   border: 0;
   overflow: auto;
   font-family: var(--editor-font-family, monospace);
   font-size: var(--editor-font-size, 13px);
-  line-height: var(--build-output-line-height, 1.5);
-  color: var(--text-color);
-  background: transparent;
+  line-height: var(--task-output-line-height, 1.5);
+  color: var(--syntax-text-color);
+  background-color: var(--syntax-background-color);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   user-select: text;
 }
 
-.build-panel .build-output-command {
+.tasks-panel .task-output-command {
   color: var(--text-color-subtle);
 }
 
-.build-panel .build-output-stderr {
+.tasks-panel .task-output-stderr {
   color: var(--text-color-error, var(--text-color));
 }
 
-.build-panel .build-panel-empty {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  gap: 6px;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-  color: var(--text-color-subtle);
-  text-align: center;
-}
-
-.build-panel .build-panel-empty-title {
-  color: var(--text-color);
-  font-weight: 600;
-}
-
-.build-panel .build-panel-empty p {
-  margin: 0;
-}
-
-.build-panel .build-output[hidden],
-.build-panel .build-panel-empty[hidden] {
+.tasks-panel [hidden] {
   display: none;
 }
 
-.build-panel[data-state="running"] {
-  --build-state-color: var(--text-color-info);
+.tasks-panel[data-state="preparing"],
+.tasks-panel[data-state="running"],
+.tasks-panel[data-state="collecting"],
+.tasks-panel .tasks-run-row[data-state="preparing"],
+.tasks-panel .tasks-run-row[data-state="running"],
+.tasks-panel .tasks-run-row[data-state="collecting"] {
+  --tasks-state-color: var(--text-color-info);
 }
 
-.build-panel[data-state="passed"] {
-  --build-state-color: var(--text-color-success);
+.tasks-panel[data-state="passed"],
+.tasks-panel .tasks-run-row[data-state="passed"] {
+  --tasks-state-color: var(--text-color-success);
 }
 
-.build-panel[data-state="failed"] {
-  --build-state-color: var(--text-color-error);
+.tasks-panel[data-state="failed"],
+.tasks-panel .tasks-run-row[data-state="failed"] {
+  --tasks-state-color: var(--text-color-error);
 }
 
-.build-panel[data-state="stopped"] {
-  --build-state-color: var(--text-color-warning);
+.tasks-panel[data-state="cancelled"],
+.tasks-panel .tasks-run-row[data-state="cancelled"] {
+  --tasks-state-color: var(--text-color-warning);
 }
 
-.build-status {
+.tasks-panel .tasks-run-row[data-state="preparing"],
+.tasks-panel .tasks-run-row[data-state="running"],
+.tasks-panel .tasks-run-row[data-state="collecting"] {
+  --data-table-row-tint: var(--background-color-info);
+}
+
+.tasks-panel .tasks-run-row[data-state="passed"] {
+  --data-table-row-tint: var(--background-color-success);
+}
+
+.tasks-panel .tasks-run-row[data-state="failed"] {
+  --data-table-row-tint: var(--background-color-error);
+}
+
+.tasks-panel .tasks-run-row[data-state="cancelled"] {
+  --data-table-row-tint: var(--background-color-warning);
+}
+
+.tasks-status {
+  display: inline-grid;
+  grid-template-columns: var(--ui-icon-size) max-content;
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  align-items: center;
+  flex-shrink: 0;
   color: inherit;
-  background: none;
-  border: 0;
 }
 
-.build-status[data-state="running"] {
-  color: var(--text-color-info);
+.tasks-status > .icon-tools {
+  display: flex;
+  grid-column: 1;
+  grid-row: 1 / span 2;
+  align-items: center;
+  justify-content: center;
 }
 
-.build-status[data-state="passed"] {
+.tasks-status > .tasks-status-new-indicator,
+.tasks-status > .tasks-status-observed-count {
+  position: static;
+  grid-column: 2;
+  min-inline-size: 1ch;
+  font-size: 0.75em;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  vertical-align: baseline;
+}
+
+.tasks-status > .tasks-status-new-indicator {
+  grid-row: 1;
+}
+
+.tasks-status > .tasks-status-observed-count {
+  grid-row: 2;
+  color: var(--text-color-subtle);
+}
+
+.tasks-status > .tasks-status-new-indicator[hidden],
+.tasks-status > .tasks-status-observed-count[hidden] {
+  display: none;
+}
+
+.tasks-status[data-running="true"] > .icon-tools {
+  animation: tasks-status-pulse 1s ease-in-out infinite;
+}
+
+.tasks-status[data-state="passed"] > .tasks-status-new-indicator {
   color: var(--text-color-success);
 }
 
-.build-status[data-state="failed"] {
+.tasks-status[data-state="failed"] > .tasks-status-new-indicator {
   color: var(--text-color-error);
+}
+
+.tasks-status[data-state="cancelled"] > .tasks-status-new-indicator {
+  color: var(--text-color-warning);
+}
+
+@keyframes tasks-status-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+.disable-animations .tasks-status[data-running="true"] > .icon-tools {
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tasks-status[data-running="true"] > .icon-tools {
+    animation: none;
+  }
 }

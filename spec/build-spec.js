@@ -1,485 +1,482 @@
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
-const temp = require("@lumine-code/fs-temp").track();
+const { ipcRenderer } = require("electron");
 
-function closed(child) {
-  return new Promise((resolve, reject) => {
-    child.once("close", resolve);
-    child.once("error", reject);
+describe("Tasks workspace integration", () => {
+  let main, directory, editor, previousPaths, previousWorkspaceHeight;
+  beforeEach(async () => {
+    jasmine.useRealClock();
+    jasmine.attachToDOM(lumine.workspace.getElement());
+    previousWorkspaceHeight = lumine.workspace.getElement().style.height;
+    if (lumine.packages.isPackageActive("tasks")) await lumine.packages.deactivatePackage("tasks");
+    directory = fs.mkdtempSync(path.join(os.tmpdir(), "tasks-tasks-"));
+    fs.writeFileSync(path.join(directory, "first.txt"), "first\n");
+    previousPaths = lumine.project.getPaths();
+    lumine.project.setPaths([directory]);
+    lumine.config.set("tasks.saveOnBuild", false);
+    editor = await lumine.workspace.open(path.join(directory, "first.txt"));
+    main = (await lumine.packages.activatePackage("tasks")).mainModule;
   });
-}
+  afterEach(async () => {
+    const jobs = main.manager.getJobs({ activeOnly: true });
+    main.manager.stopAll();
+    await Promise.all(jobs.map((job) => job.completion));
+    await lumine.packages.deactivatePackage("tasks");
+    lumine.workspace.getElement().style.height = previousWorkspaceHeight;
+    for (const item of lumine.workspace.getTextEditors())
+      if (item.getPath()?.startsWith(directory + path.sep)) item.destroy();
+    lumine.project.setPaths(previousPaths);
+    await lumine.fileWatchClient.settlePendingTeardown();
+    const resolved = path.resolve(directory);
+    if (
+      path.dirname(resolved) !== path.resolve(os.tmpdir()) ||
+      !path.basename(resolved).startsWith("tasks-tasks-")
+    )
+      throw new Error("Unsafe fixture cleanup.");
+    fs.rmSync(resolved, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+  });
+  async function configure(targets) {
+    fs.mkdirSync(path.join(directory, ".lumine"), { recursive: true });
+    fs.writeFileSync(
+      path.join(directory, ".lumine/tasks.json"),
+      JSON.stringify({ tasks: targets }),
+    );
+    await main.refreshTargets();
+  }
+  const target = (name, output) => ({
+    name,
+    cmd: "node",
+    args: ["-e", `process.stdout.write(${JSON.stringify(output)})`],
+  });
 
-describe("build", () => {
-  let directory;
-  let main;
-  let workspaceElement;
-
-  function writeTarget(target) {
-    fs.writeFileSync(path.join(directory, ".lumine-build.json"), JSON.stringify(target));
+  async function nativeKey(keyCode) {
+    const types = keyCode === "Enter" ? ["keyDown", "char", "keyUp"] : ["keyDown", "keyUp"];
+    for (const type of types)
+      await ipcRenderer.invoke("lumine:window", "sendInputEvent", { type, keyCode });
+    await settleInput();
   }
 
-  beforeEach(async () => {
-    directory = fs.realpathSync.native(temp.mkdirSync("lumine-build-integration-"));
-    lumine.project.setPaths([directory]);
-    lumine.config.set("build.saveOnBuild", false);
-    lumine.config.set("build.panelVisibility", "Show on Build");
-    lumine.config.set("build.clearOnBuild", true);
-    lumine.config.set("build.scrollToEnd", true);
-    lumine.config.set("build.maxOutputLines", 10000);
-    workspaceElement = lumine.views.getView(lumine.workspace);
-    jasmine.attachToDOM(workspaceElement);
+  async function nativeClick(element) {
+    const rect = element.getBoundingClientRect();
+    for (const type of ["mouseMove", "mouseDown", "mouseUp"])
+      await ipcRenderer.invoke("lumine:window", "sendInputEvent", {
+        type,
+        x: Math.round(rect.left + rect.width / 2),
+        y: Math.round(rect.top + rect.height / 2),
+        button: "left",
+        clickCount: 1,
+      });
+    await settleInput();
+  }
+
+  async function settleInput() {
+    for (let frame = 0; frame < 2; frame++)
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+  }
+
+  function attachPickerControls() {
+    const panel = main.ensurePanel();
+    panel.element.style.cssText =
+      "position:fixed;left:20px;top:40px;width:800px;height:200px;z-index:100000";
+    lumine.workspace.getElement().style.height = "400px";
+    lumine.workspace.getElement().append(panel.element);
+    return panel;
+  }
+
+  it("runs actual project commands and keeps their logs separately", async () => {
+    await configure([target("First", "one"), target("Second", "two")]);
+    const first = await main.runTarget(main.targets[0]);
+    await first.completion;
+    const second = await main.runTarget(main.targets[1]);
+    await second.completion;
+    expect(first.stdout).toBe("one");
+    expect(second.stdout).toBe("two");
+    expect(first.name).toBe("First");
+    expect(second.name).toBe("Second");
+    expect(main.manager.getLogs()).toEqual([second, first]);
+    const panel = main.ensurePanel();
+    expect(panel.mode).toBe("list");
+    panel.selectJob(second);
+    expect(panel.getSelectedJob()).toBe(second);
   });
 
-  afterEach(async () => {
-    await lumine.packages.deactivatePackage("build");
-  });
-
-  it("skips automatic builds for None and resumes after a grammar is selected", async () => {
-    const language = await lumine.packages.activatePackage("language-javascript");
-    await language.resourceLoadPromise;
-    const sourcePath = path.join(directory, "source.js");
-    fs.writeFileSync(sourcePath, "original");
-    const editor = await lumine.workspace.open(sourcePath);
-    const grammar = editor.getGrammar();
-    const pkg = await lumine.packages.activatePackage("build");
-    main = pkg.mainModule;
-    spyOn(main, "projectPathForEditor").and.returnValue(directory);
-    const run = spyOn(main, "runActiveTarget").and.resolveTo();
-    lumine.config.set("build.buildOnSave", true);
-    editor.setGrammar(lumine.grammars.nullGrammar);
-    editor.setText("without grammar");
-    await editor.save();
-    expect(run).not.toHaveBeenCalled();
-    editor.setGrammar(grammar);
-    editor.setText("with grammar");
-    await editor.save();
-    expect(run).toHaveBeenCalledTimes(1);
-    expect(run.calls.mostRecent().args).toEqual([{ sourceEditor: editor }]);
-  });
-
-  it("closes the center editor from build output while retaining the output panel", async () => {
-    const editor = await lumine.workspace.open();
-    const pack = await lumine.packages.activatePackage("build");
-    const panel = pack.mainModule.ensurePanel();
-    await panel.show();
-    panel.append("retained build output", "stdout");
-
-    await lumine.commands.dispatch(panel.output, "core:close");
-
-    expect(lumine.workspace.getBottomDock().isVisible()).toBe(true);
-    expect(lumine.workspace.getBottomDock().getPaneItems()).toContain(panel);
-    expect(panel.getText()).toBe("retained build output");
-    expect(editor.isDestroyed()).toBe(true);
-  });
-
-  it("runs a project target and streams its output", async () => {
-    writeTarget({ name: "Echo", cmd: "node", args: ["-e", "console.log('build-complete')"] });
-    const pack = await lumine.packages.activatePackage("build");
-    main = pack.mainModule;
-    await main.refreshTargets();
-    expect(main.activeTarget?.name).toBe("Echo");
-
-    const child = await main.runActiveTarget();
-    await closed(child);
-
-    expect(main.panel.getText()).toContain("build-complete");
-    expect(main.statusElement.dataset.state).toBe("passed");
-  });
-
-  it("cancels a pending YAML import when a newer refresh selects another configuration", async () => {
-    main = (await lumine.packages.activatePackage("build")).mainModule;
-    await main.refreshTargets();
-    const YamlLoader = require("../lib/yaml-loader");
-    let entered;
-    let release;
-    const importing = new Promise((resolve) => (entered = resolve));
-    const parser = { parse: jasmine.createSpy("parse") };
-    spyOn(YamlLoader.prototype, "load").and.callFake(() => {
-      entered();
-      return new Promise((resolve) => (release = resolve));
-    });
-    fs.writeFileSync(path.join(directory, ".lumine-build.yaml"), "name: stale\ncmd: node\n");
-    const previous = main.refreshTargets();
-    await importing;
-    writeTarget({ name: "Current", cmd: "node" });
-    await main.refreshTargets();
-    release(parser);
-    await previous;
-    expect(parser.parse).not.toHaveBeenCalled();
-    expect(main.activeTarget.name).toBe("Current");
-  });
-
-  it("retires a YAML import on unload while the new generation remains usable", async () => {
-    main = (await lumine.packages.activatePackage("build")).mainModule;
-    await main.refreshTargets();
-    const previousMain = main;
-    const YamlLoader = require("../lib/yaml-loader");
-    let entered;
-    let release;
-    const importing = new Promise((resolve) => (entered = resolve));
-    const parser = { parse: jasmine.createSpy("parse") };
-    spyOn(YamlLoader.prototype, "load").and.callFake(() => {
-      entered();
-      return new Promise((resolve) => (release = resolve));
-    });
-    fs.writeFileSync(path.join(directory, ".lumine-build.yaml"), "name: stale\ncmd: node\n");
-    const previous = main.refreshTargets();
-    await importing;
-    await lumine.packages.unloadPackage("build");
-    writeTarget({ name: "Reactivated", cmd: "node" });
-    main = (await lumine.packages.activatePackage("build")).mainModule;
-    await main.refreshTargets();
-    release(parser);
-    await previous;
-    expect(main).not.toBe(previousMain);
-    expect(parser.parse).not.toHaveBeenCalled();
-    expect(main.activeTarget.name).toBe("Reactivated");
-  });
-
-  it("saves every non-unmodified text editor before building", async () => {
-    writeTarget({ name: "Save", cmd: "node", args: ["--version"] });
-    const pack = await lumine.packages.activatePackage("build");
-    main = pack.mainModule;
-    await main.refreshTargets();
-    lumine.config.set("build.saveOnBuild", true);
-
-    const editors = ["unmodified", "modified", "conflicted", "removed"].map((fileState) => ({
-      getFileState: () => fileState,
-      save: jasmine.createSpy(`save-${fileState}`).and.returnValue(Promise.resolve()),
-    }));
-    spyOn(lumine.workspace, "getTextEditors").and.returnValue(editors);
-    spyOn(main, "runTarget").and.returnValue("started");
-
-    expect(await main.runActiveTarget()).toBe("started");
-    expect(editors[0].save).not.toHaveBeenCalled();
-    expect(editors[1].save).toHaveBeenCalled();
-    expect(editors[2].save).toHaveBeenCalled();
-    expect(editors[3].save).toHaveBeenCalled();
-  });
-
-  it("stops a running target and cleans up its process", async () => {
-    writeTarget({ name: "Long", cmd: "node", args: ["-e", "setInterval(() => {}, 1000)"] });
-    const pack = await lumine.packages.activatePackage("build");
-    main = pack.mainModule;
-    await main.refreshTargets();
-    expect(main.activeTarget?.name).toBe("Long");
-    const child = await main.runActiveTarget();
-    const finished = closed(child);
-
-    expect(main.stop()).toBe(true);
-    await finished;
-    expect(main.statusElement.dataset.state).toBe("stopped");
-  });
-
-  it("accepts targets from the build provider service", async () => {
-    const pack = await lumine.packages.activatePackage("build");
-    main = pack.mainModule;
-    const subscription = main.consumeBuildProvider({
-      name: "spec-provider",
-      provide: () => ({ name: "Provided", cmd: "node", args: ["--version"] }),
-    });
-    await main.refreshTargets();
-
-    expect(main.activeTarget.name).toBe("Provided");
-    subscription.dispose();
-    await main.refreshTargets();
-    expect(main.targets.length).toBe(0);
-  });
-
-  it("registers and runs a target-specific command", async () => {
-    writeTarget({
-      name: "Command",
-      cmd: "node",
-      args: ["-e", "console.log('command-target')"],
-      commandName: "spec:run-target",
-    });
-    const pack = await lumine.packages.activatePackage("build");
-    main = pack.mainModule;
-    await main.refreshTargets();
-    expect(main.activeTarget?.commandName).toBe("spec:run-target");
-
-    await lumine.commands.dispatch(workspaceElement, "spec:run-target");
-    const child = main.activeProcess;
-    expect(child).not.toBeNull();
-    await closed(child);
-
-    expect(main.panel.getText()).toContain("command-target");
-    expect(main.statusElement.dataset.state).toBe("passed");
-  });
-
-  it("loads and confirms the target picker through its source and primary action", async () => {
-    writeTarget([
-      { name: "First", cmd: "node", args: ["--version"] },
-      { name: "Second", cmd: "node", args: ["--version"] },
-    ]);
-    const pack = await lumine.packages.activatePackage("build");
-    main = pack.mainModule;
-
-    await main.selectTarget();
-    const targets = main.selectList.getItems();
-    expect(targets.map(({ name }) => name)).toEqual(["First", "Second"]);
-    expect(main.selectList.getSource().mode).toBe("snapshot");
-    expect(main.selectList.getItemId(targets[1])).toBe(
-      JSON.stringify([".lumine-build.json", "Second"]),
-    );
-
-    await main.selectList.selectItem(targets[1]);
-    expect((await main.selectList.confirmSelection()).status).toBe("success");
-    expect(main.activeTarget).toBe(targets[1]);
+  it("runs the confirmed native-picker task immediately without a remembered default", async () => {
+    await configure([target("First", "one"), target("Second", "two")]);
+    await lumine.commands.dispatch(lumine.workspace.getElement(), "tasks:run-task");
+    expect(main.manager.getJobs()).toEqual([]);
+    expect(main.selectListHost.isVisible()).toBe(true);
+    const picker = main.selectListHost.getModel();
+    const chosen = main.targets.find((entry) => entry.name === "Second");
+    await picker.selectItemById(chosen.id);
+    await picker.confirmSelection();
+    const jobs = main.manager.getJobs();
+    expect(jobs.length).toBe(1);
+    await jobs[0].completion;
+    expect(jobs[0].name).toBe("Second");
+    expect(jobs[0].stdout).toBe("two");
     expect(main.selectListHost.isVisible()).toBe(false);
+    await lumine.commands.dispatch(lumine.workspace.getElement(), "tasks:run-task");
+    expect(main.selectListHost.isVisible()).toBe(true);
+    expect(main.manager.getJobs()).toEqual(jobs);
   });
 
-  it("keeps equally named build targets distinct and retains the chosen command after reordering", async () => {
-    const first = { cmd: "node", args: ["--version"] };
-    const second = { cmd: "node", args: ["--help"] };
-    writeTarget([first, second]);
-    main = (await lumine.packages.activatePackage("build")).mainModule;
-    await main.selectTarget();
-    expect(main.selectList.getStatus()).toBeNull();
-    const targets = main.selectList.getItems();
-    expect(targets.length).toBe(2);
-    if (targets.length !== 2) return;
-    expect(main.selectList.getItemId(targets[0])).not.toBe(main.selectList.getItemId(targets[1]));
-    await main.selectList.selectItem(targets[1]);
-    await main.selectList.confirmSelection();
-    writeTarget([second, first]);
-    await main.refreshTargets();
-    expect(main.activeTarget.args).toEqual(["--help"]);
-    await main.selectTarget();
-    expect(main.selectList.getItems().length).toBe(2);
-    writeTarget([second, first, first]);
-    await main.refreshTargets();
-    expect(main.selectList.getItemCount()).toBe(3);
-    expect(
-      new Set(main.selectList.getItems().map((target) => main.selectList.getItemId(target))).size,
-    ).toBe(3);
-    expect(main.activeTarget.args).toEqual(["--help"]);
+  it("opens the task picker from the history Run icon and starts only the confirmed task", async () => {
+    await configure([target("First", "one"), target("Second", "two")]);
+    const panel = main.ensurePanel();
+    await panel.show();
+    panel.runButton.click();
+    await window.conditionPromise(
+      () =>
+        main.selectListHost?.isVisible() && main.selectListHost.getModel().getItems().length === 2,
+      "the task picker to load its choices",
+    );
+    expect(main.manager.getJobs()).toEqual([]);
+    expect(panel.list.children.length).toBe(0);
+    const picker = main.selectListHost.getModel();
+    const chosen = main.targets.find((entry) => entry.name === "Second");
+    await picker.selectItemById(chosen.id);
+    await picker.confirmSelection();
+    const [job] = main.manager.getJobs();
+    await job.completion;
+    expect(job.stdout).toBe("two");
+    expect(panel.list.children.length).toBe(1);
+    expect(panel.mode).toBe("list");
   });
 
-  describe("pending build ownership", () => {
-    const deferred = () => {
-      let resolve, reject;
-      const promise = new Promise((yes, no) => {
-        resolve = yes;
-        reject = no;
-      });
-      return { promise, resolve, reject };
-    };
+  it("runs a confirmed picker task without opening Tasks or moving focus from its source", async () => {
+    await configure([
+      {
+        name: "Failure",
+        cmd: "node",
+        args: ["-e", "process.stdout.write('failed output');process.exitCode=1"],
+      },
+    ]);
+    const dock = lumine.workspace.getBottomDock();
+    dock.hide();
+    editor.getElement().focus();
+    const ensurePanel = spyOn(main, "ensurePanel").and.callThrough();
+    await main.selectTask();
+    const picker = main.selectListHost.getModel();
+    await picker.selectItemById(main.targets[0].id);
+    await picker.confirmSelection();
+    const [job] = main.manager.getJobs();
+    expect(main.selectListHost.isVisible()).toBeFalse();
+    expect(dock.isVisible()).toBeFalse();
+    expect(ensurePanel).not.toHaveBeenCalled();
+    await job.completion;
+    expect(job.state).toBe("failed");
+    expect(main.isTasksPanelVisible()).toBeFalse();
+    expect(ensurePanel).not.toHaveBeenCalled();
+    expect(main.statusElement.dataset.new).toBe("1");
+    expect(main.statusNewIndicator.hidden).toBeFalse();
+    await window.conditionPromise(
+      () => editor.getElement().contains(document.activeElement),
+      "focus to return to the source after confirming the task",
+    );
+    expect(main.manager.getJobs()).toEqual([job]);
+  });
 
-    beforeEach(async () => {
-      writeTarget({ name: "Pending", cmd: "node", args: ["--version"] });
-      ({ mainModule: main } = await lumine.packages.activatePackage("build"));
+  it("returns pointer-opened pickers to the source without a keyboard ring on their icons", async () => {
+    await configure([target("Compile", "done")]);
+    const panel = attachPickerControls();
+    editor.getElement().focus();
+    for (const [button, getHost] of [
+      [panel.runButton, () => main.selectListHost],
+      [panel.observedButton, () => main.observedList?.selectListHost],
+    ]) {
+      await nativeClick(button);
+      await window.conditionPromise(() => getHost()?.isVisible(), "the picker to open");
+      await nativeKey("Escape");
+      await window.conditionPromise(
+        () => !getHost().isVisible() && editor.getElement().contains(document.activeElement),
+        "focus to return to the source after closing a pointer-opened picker",
+      );
+      expect(button.matches(":focus")).toBeFalse();
+      expect(button.matches(":focus-visible")).toBeFalse();
+    }
+    expect(main.manager.getJobs()).toEqual([]);
+  });
+
+  it("preserves keyboard focus and native activation on the picker icons", async () => {
+    await configure([target("Compile", "done")]);
+    const panel = attachPickerControls();
+    for (const [button, getHost, key] of [
+      [panel.runButton, () => main.selectListHost, "Space"],
+      [panel.observedButton, () => main.observedList?.selectListHost, "Enter"],
+    ]) {
+      button.focus();
+      expect(document.activeElement).toBe(button);
+      await nativeKey(key);
+      await window.conditionPromise(
+        () => getHost()?.isVisible(),
+        `${button.getAttribute("aria-label")} to open with ${key}`,
+        1000,
+      );
+      await nativeKey("Escape");
+      await window.conditionPromise(
+        () => !getHost().isVisible() && document.activeElement === button,
+        "focus to return to the keyboard-activated picker icon",
+      );
+      expect(button.matches(":focus-visible")).toBeTrue();
+    }
+    expect(main.manager.getJobs()).toEqual([]);
+  });
+
+  it("runs independent targets from one project at the same time", async () => {
+    await configure([
+      { name: "Watch", cmd: "node", args: ["-e", "setTimeout(()=>{},5000)"] },
+      target("Tests", "checked"),
+    ]);
+    const watch = await main.runTarget(main.targets[0]);
+    const tests = await main.runTarget(main.targets[1]);
+    await tests.completion;
+    expect(tests).not.toBe(watch);
+    expect(tests.stdout).toBe("checked");
+    expect(main.isActive(watch)).toBeTrue();
+    watch.stop();
+    await watch.completion;
+  });
+
+  it("keeps the first request's substitutions when a duplicate arrives before preparation", async () => {
+    await configure([
+      {
+        name: "Selection",
+        cmd: "node",
+        args: ["-e", "process.stdout.write(process.argv[1])", "{SELECTION}"],
+      },
+    ]);
+    editor.setText("first second");
+    editor.setSelectedBufferRange([
+      [0, 0],
+      [0, 5],
+    ]);
+    const first = main.runTarget(main.targets[0]);
+    editor.setSelectedBufferRange([
+      [0, 6],
+      [0, 12],
+    ]);
+    const duplicate = main.runTarget(main.targets[0]);
+    const job = await first;
+    expect(await duplicate).toBe(job);
+    await job.completion;
+    expect(job.stdout).toBe("first");
+  });
+
+  it("rejects target command collisions and retires the previous configuration commands", async () => {
+    await configure([{ ...target("Custom", "custom"), commandName: "tasks:custom-task" }]);
+    const element = lumine.workspace.getElement();
+    expect(lumine.commands.canDispatch(element, "tasks:custom-task")).toBeTrue();
+    await configure([{ ...target("Reserved", "bad"), commandName: "tasks:stop" }]);
+    expect(main.targets).toEqual([]);
+    expect(lumine.commands.canDispatch(element, "tasks:custom-task")).toBeFalse();
+  });
+
+  it("keeps an explicitly dispatched target and substitutions while its editor save waits", async () => {
+    await configure([
+      {
+        name: "Snapshot",
+        cmd: "node",
+        args: ["-e", "process.stdout.write(process.argv[1])", "{FILE_ACTIVE}"],
+      },
+      target("Other", "other"),
+    ]);
+    lumine.config.set("tasks.saveOnBuild", true);
+    let release,
+      waiting = false;
+    const saved = new Promise((resolve) => {
+      release = resolve;
+    });
+    const lease = editor.getBuffer().onWillSave(() => {
+      waiting = true;
+      return saved;
+    });
+    editor.setText("modified");
+    const requestedTarget = main.targets[0];
+    const pending = main.runTarget(requestedTarget);
+    try {
+      while (!waiting) await new Promise((resolve) => setTimeout(resolve, 0));
+      const other = main.targets[1];
+      await configure([other, main.targets[0]]);
+      fs.writeFileSync(path.join(directory, "second.txt"), "second");
+      await lumine.workspace.open(path.join(directory, "second.txt"));
+      release();
+      const job = await pending;
+      await job.completion;
+      expect(job.name).toBe("Snapshot");
+      expect(job.stdout).toBe(editor.getPath());
+    } finally {
+      release();
+      lease.dispose();
+    }
+  });
+
+  it("keeps pending source saves owned by the activation that requested them", async () => {
+    await configure([target("Saved", "saved")]);
+    lumine.config.set("tasks.saveOnBuild", true);
+    editor.setText("modified");
+    let releaseOld, releaseCurrent;
+    const oldSave = new Promise((resolve) => {
+      releaseOld = resolve;
+    });
+    const currentSave = new Promise((resolve) => {
+      releaseCurrent = resolve;
+    });
+    spyOn(editor, "save").and.returnValues(oldSave, currentSave);
+    const retiredManager = main.manager;
+    const stale = main.runTarget(main.targets[0]);
+    await lumine.packages.deactivatePackage("tasks");
+    main = (await lumine.packages.activatePackage("tasks")).mainModule;
+    await main.refreshTargets();
+    const currentManager = main.manager;
+    const pending = main.runTarget(main.targets[0]);
+    let currentSettled = false;
+    pending.then(() => {
+      currentSettled = true;
+    });
+    try {
+      releaseOld();
+      expect(await stale).toBeNull();
+      expect(retiredManager.getJobs()).toEqual([]);
+      expect(currentManager.getJobs()).toEqual([]);
+      expect(currentSettled).toBe(false);
+      releaseCurrent();
+      const job = await pending;
+      await job.completion;
+      expect(job.state).toBe("passed");
+      expect(job.stdout).toBe("saved");
+      expect(currentManager.getJobs()).toEqual([job]);
+    } finally {
+      releaseOld();
+      releaseCurrent();
+    }
+  });
+
+  it("includes document providers for standalone files without a project", async () => {
+    lumine.project.setPaths([]);
+    const lease = main.manager.registerProvider({
+      id: "document",
+      name: "Document",
+      supports: (file) => file.endsWith(".txt"),
+      prepare: () => ({ cmd: "node", args: ["-e", "process.stdout.write('standalone')"] }),
+    });
+    try {
       await main.refreshTargets();
-      main.linter = null;
-    });
+      expect(main.targets.length).toBe(1);
+      expect(main.targets[0].providerId).toBe("document");
+      const job = await main.runTarget(main.targets[0]);
+      await job.completion;
+      expect(job.stdout).toBe("standalone");
+    } finally {
+      lease.dispose();
+    }
+  });
 
-    it("does not start after deactivation while linter discovery waits", async () => {
-      const service = deferred();
-      spyOn(lumine.packages, "requestService").and.returnValue(service.promise);
-      const run = spyOn(main, "runTarget").and.returnValue("started");
-      const pending = main.runActiveTarget();
-      await lumine.packages.deactivatePackage("build");
-      service.resolve();
-      expect(await pending).toBeNull();
-      expect(run).not.toHaveBeenCalled();
-      expect(main.panel).toBeNull();
+  it("publishes diagnostics without allowing the linter to mutate service results", async () => {
+    const registry = main.consumeLinterRegistry(() => ({
+      setAllMessages(messages) {
+        if (messages[0]) {
+          messages[0].location.position = "mutated";
+          messages[0].linterName = "Tasks";
+        }
+      },
+      dispose() {},
+    }));
+    const lease = main.manager.registerProvider({
+      id: "diagnostic",
+      name: "Diagnostic",
+      supports: () => true,
+      prepare: () => ({ cmd: "node", args: ["-e", ""] }),
+      collectResult: () => ({
+        diagnostics: [
+          {
+            severity: "error",
+            excerpt: "range",
+            location: {
+              file: editor.getPath(),
+              position: [
+                [0, 3],
+                [1, 1],
+              ],
+            },
+          },
+        ],
+      }),
     });
+    try {
+      const job = main.manager.run({ providerId: "diagnostic", filePath: editor.getPath() });
+      await job.completion;
+      expect(job.diagnostics[0].location.position).toEqual([
+        [0, 3],
+        [1, 1],
+      ]);
+      expect(job.diagnostics[0].linterName).toBeUndefined();
+    } finally {
+      lease.dispose();
+      registry.dispose();
+    }
+  });
 
-    it("does not start an outgoing project's target after project restoration", async () => {
-      const service = deferred();
-      spyOn(lumine.packages, "requestService").and.returnValue(service.promise);
-      const run = spyOn(main, "runTarget").and.returnValue("started");
-      const pending = main.runActiveTarget();
-      const nextDirectory = fs.realpathSync.native(temp.mkdirSync("lumine-build-next-"));
-      await lumine.project.setState([nextDirectory]);
-      service.resolve();
-      expect(await pending).toBeNull();
-      expect(run).not.toHaveBeenCalled();
-    });
+  it("keeps log selection and focus while another active task streams output", async () => {
+    await configure([
+      target("First", "first"),
+      {
+        name: "Held",
+        cmd: "node",
+        args: [
+          "-e",
+          "console.log('started');setTimeout(()=>console.log('later'),100);setTimeout(()=>{},5000)",
+        ],
+      },
+    ]);
+    const first = await main.runTarget(main.targets[0]);
+    await first.completion;
+    const second = await main.runTarget(main.targets[1]);
+    const panel = main.ensurePanel();
+    await panel.show();
+    panel.selectJob(first);
+    editor.getElement().focus();
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(panel.getSelectedJob()).toBe(first);
+    expect(editor.getElement().contains(document.activeElement)).toBeTrue();
+    second.stop();
+    await second.completion;
+  });
 
-    it("retires a pending build before the incoming storage scope precedes its roots", async () => {
-      const service = deferred();
-      const rebound = deferred();
-      const resume = deferred();
-      spyOn(lumine.packages, "requestService").and.returnValue(service.promise);
-      const run = spyOn(main, "runTarget").and.returnValue("started");
-      const pending = main.runActiveTarget();
-      const switchProject = lumine.packages.storage.switchProject.bind(lumine.packages.storage);
-      spyOn(lumine.packages.storage, "switchProject").and.callFake(async (paths) => {
-        await switchProject(paths);
-        rebound.resolve();
-        await resume.promise;
-      });
-      const nextDirectory = fs.realpathSync.native(temp.mkdirSync("lumine-build-rebind-next-"));
-      const transition = lumine.project.setState([nextDirectory]);
-      try {
-        await rebound.promise;
-        expect(lumine.project.getPaths()).toEqual([directory]);
-        service.resolve();
-        expect(await pending).toBeNull();
-        expect(run).not.toHaveBeenCalled();
-      } finally {
-        resume.resolve();
-        await transition;
-      }
-    });
+  it("reopens the dock with retained logs after closing its tab", async () => {
+    await configure([target("Persistent", "retained")]);
+    const job = await main.runTarget(main.targets[0]);
+    await job.completion;
+    const first = main.ensurePanel();
+    await first.show();
+    await lumine.workspace.paneForItem(first).destroyItem(first, true);
+    const panel = main.ensurePanel();
+    await panel.show();
+    expect(panel).not.toBe(first);
+    expect(panel.mode).toBe("list");
+    panel.selectJob(job);
+    expect(panel.getText()).toContain("retained");
+    expect(main.manager.getJobs()).toEqual([job]);
+  });
 
-    it("does not start an outgoing project's target after a delayed save", async () => {
-      const saving = deferred();
-      const started = deferred();
-      spyOn(lumine.packages, "requestService").and.resolveTo();
-      const sourcePath = path.join(directory, "source.js");
-      fs.writeFileSync(sourcePath, "old text");
-      const editor = await lumine.workspace.open(sourcePath);
-      editor.setText("new text");
-      spyOn(editor, "save").and.callFake(() => {
-        started.resolve();
-        return saving.promise;
-      });
-      spyOn(lumine.workspace, "confirmClose").and.resolveTo(true);
-      const run = spyOn(main, "runTarget").and.returnValue("started");
-      lumine.config.set("build.saveOnBuild", true);
-      const pending = main.runActiveTarget();
-      await started.promise;
-      const nextDirectory = fs.realpathSync.native(temp.mkdirSync("lumine-build-save-next-"));
-      await lumine.project.setState([nextDirectory]);
-      saving.resolve();
-      expect(await pending).toBeNull();
-      expect(run).not.toHaveBeenCalled();
-    });
+  it("publishes its service synchronously and retires the previous generation", async () => {
+    const service = main.provideTasks();
+    expect(service).toBe(main.manager);
+    await lumine.packages.deactivatePackage("tasks");
+    expect(service.destroyed).toBeTrue();
+    main = (await lumine.packages.activatePackage("tasks")).mainModule;
+    expect(main.provideTasks()).not.toBe(service);
+    expect(service.run({ providerId: "project", filePath: directory })).toBeNull();
+  });
 
-    it("does not start after deactivation while the editor save waits", async () => {
-      const sourcePath = path.join(directory, "source.js");
-      fs.writeFileSync(sourcePath, "old text");
-      const editor = await lumine.workspace.open(sourcePath);
-      editor.setText("new text");
-      const saving = deferred();
-      const saveStarted = deferred();
-      const save = spyOn(editor, "save").and.callFake(() => {
-        saveStarted.resolve();
-        return saving.promise;
-      });
-      spyOn(lumine.packages, "requestService").and.resolveTo();
-      const run = spyOn(main, "runTarget").and.returnValue("started");
-      lumine.config.set("build.saveOnBuild", true);
-      const pending = main.runActiveTarget();
-      await saveStarted.promise;
-      expect(save).toHaveBeenCalledTimes(1);
-      await lumine.packages.deactivatePackage("build");
-      saving.resolve();
-      expect(await pending).toBeNull();
-      expect(run).not.toHaveBeenCalled();
-    });
-
-    it("retires an automatic start across None and resumes before old discovery settles", async () => {
-      const language = await lumine.packages.activatePackage("language-javascript");
-      await language.resourceLoadPromise;
-      const sourcePath = path.join(directory, "source.js");
-      fs.writeFileSync(sourcePath, "source");
-      const editor = await lumine.workspace.open(sourcePath);
-      const grammar = editor.getGrammar();
-      const oldService = deferred();
-      const newService = deferred();
-      spyOn(lumine.packages, "requestService").and.returnValues(
-        oldService.promise,
-        newService.promise,
-      );
-      const run = spyOn(main, "runTarget").and.returnValue("started");
-      const oldPending = main.runActiveTarget({ sourceEditor: editor });
-      try {
-        lumine.grammars.assignGrammar(editor, lumine.grammars.nullGrammar);
-        expect(main.pendingStart).toBeNull();
-        lumine.grammars.assignGrammar(editor, grammar);
-        const replacement = main.runActiveTarget({ sourceEditor: editor });
-        newService.resolve();
-        expect(await replacement).toBe("started");
-        oldService.resolve();
-        expect(await oldPending).toBeNull();
-        expect(run).toHaveBeenCalledTimes(1);
-      } finally {
-        oldService.resolve();
-        newService.resolve();
-        editor.destroy();
-      }
-    });
-
-    it("owns only one start while service discovery is pending", async () => {
-      const service = deferred();
-      spyOn(lumine.packages, "requestService").and.returnValue(service.promise);
-      const run = spyOn(main, "runTarget").and.returnValue("started");
-      const first = main.runActiveTarget();
-      const second = main.runActiveTarget();
-      service.resolve();
-      expect(await first).toBe("started");
-      expect(await second).toBeNull();
-      expect(run).toHaveBeenCalledTimes(1);
-    });
-
-    it("does not clear or start a replacement activation's pending build", async () => {
-      const oldService = deferred();
-      const newService = deferred();
-      const discovery = spyOn(lumine.packages, "requestService").and.returnValues(
-        oldService.promise,
-        newService.promise,
-      );
-      const oldMain = main;
-      const oldRun = spyOn(oldMain, "runTarget").and.returnValue("started");
-      const oldPending = oldMain.runActiveTarget();
-      await lumine.packages.deactivatePackage("build");
-      ({ mainModule: main } = await lumine.packages.activatePackage("build"));
-      await main.refreshTargets();
-      main.linter = null;
-      const run = main === oldMain ? oldRun : spyOn(main, "runTarget").and.returnValue("started");
-      const pending = main.runActiveTarget();
-      oldService.resolve();
-      expect(await oldPending).toBeNull();
-      const repeated = main.runActiveTarget();
-      newService.resolve();
-      expect(await pending).toBe("started");
-      expect(await repeated).toBeNull();
-      expect(discovery).toHaveBeenCalledTimes(2);
-      expect(run).toHaveBeenCalledTimes(1);
-    });
-
-    it("ignores an obsolete discovery failure after deactivation", async () => {
-      const service = deferred();
-      spyOn(lumine.packages, "requestService").and.returnValue(service.promise);
-      const run = spyOn(main, "runTarget");
-      const pending = main.runActiveTarget();
-      const settled = pending.then(
-        (value) => ({ value }),
-        (error) => ({ error }),
-      );
-      await lumine.packages.deactivatePackage("build");
-      service.reject(new Error("Old linter failed"));
-      expect(await settled).toEqual({ value: null });
-      expect(run).not.toHaveBeenCalled();
-    });
-
-    it("preserves a current discovery failure and allows a later retry", async () => {
-      const error = new Error("Current linter failed");
-      const discovery = spyOn(lumine.packages, "requestService").and.rejectWith(error);
-      const run = spyOn(main, "runTarget").and.returnValue("started");
-      await expectAsync(main.runActiveTarget()).toBeRejectedWith(error);
-      discovery.and.resolveTo();
-      expect(await main.runActiveTarget()).toBe("started");
-      expect(run).toHaveBeenCalledTimes(1);
-    });
-
-    it("does not recursively queue another build from its own save", async () => {
-      const sourcePath = path.join(directory, "source.js");
-      fs.writeFileSync(sourcePath, "old text");
-      const editor = await lumine.workspace.open(sourcePath);
-      editor.setText("new text");
-      spyOn(lumine.packages, "requestService").and.resolveTo();
-      const run = spyOn(main, "runTarget").and.returnValue("started");
-      const warnings = spyOn(lumine.notifications, "addWarning");
-      lumine.config.set("build.saveOnBuild", true);
-      lumine.config.set("build.buildOnSave", true);
-      expect(await main.runActiveTarget()).toBe("started");
-      expect(fs.readFileSync(sourcePath, "utf8")).toBe("new text");
-      expect(run).toHaveBeenCalledTimes(1);
-      expect(warnings).not.toHaveBeenCalled();
-    });
+  it("restores its dock shell before activation without creating another manager", async () => {
+    await lumine.packages.deactivatePackage("tasks");
+    const panel = main.deserializeTasksPanel();
+    const service = main.provideTasks();
+    await lumine.workspace.open(panel, { activatePane: false });
+    main = (await lumine.packages.activatePackage("tasks")).mainModule;
+    expect(main.ensurePanel()).toBe(panel);
+    expect(main.provideTasks()).toBe(service);
+    expect(panel.getText()).toBe("");
   });
 });
