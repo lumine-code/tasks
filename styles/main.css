@@ -220,6 +220,12 @@
   background-color: rgb(from var(--text-color-highlight) r g b / 0.1);
 }
 
+.tasks-panel .tasks-list-action.selected,
+.tasks-panel .tasks-list-action.selected:hover:not(:disabled) {
+  color: var(--button-text-color-selected);
+  background-color: var(--button-background-color-selected);
+}
+
 .tasks-panel .tasks-status-filter:has(input:focus-visible),
 .tasks-panel .tasks-list-action:focus-visible {
   outline: 1px solid var(--text-color-highlight);

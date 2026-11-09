@@ -37,6 +37,12 @@
     "format:check": "prettier --check ."
   },
   "configSchema": {
+    "showNotifications": {
+      "title": "Show Notifications",
+      "description": "Show notifications when tasks start and when they succeed, fail or are cancelled.",
+      "type": "boolean",
+      "default": true
+    },
     "additionalConfigFiles": {
       "title": "Additional Task Files",
       "description": "Additional relative file names or paths to discover recursively alongside .lumine/tasks.json. All matching files contribute tasks.",

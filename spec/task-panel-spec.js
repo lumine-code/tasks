@@ -301,6 +301,8 @@ describe("Tasks execution history and details", () => {
     expect(tooltipTitle(panel.runButton)).toBe("Run task…");
     expect(tooltipTitle(panel.observedButton)).toBe("Observed documents…");
     expect(tooltipTitle(panel.clearListButton)).toBe("Clear list (completed executions)");
+    expect(tooltipTitle(panel.listMuteButton)).toBe("Mute task notifications");
+    expect(tooltipTitle(panel.muteButton)).toBe("Mute task notifications");
     for (const [status, input] of panel.statusFilters)
       expect(tooltipTitle(input.parentElement)).toBe(`Toggle ${status} executions`);
     for (const element of panel.listControls.querySelectorAll("[title]"))
@@ -361,6 +363,7 @@ describe("Tasks execution history and details", () => {
       panel.runButton,
       panel.clearListButton,
       panel.observedButton,
+      panel.listMuteButton,
       panel.filterGroup,
     ]);
     expect([...panel.statusFilters.keys()]).toEqual(["running", "passed", "failed", "cancelled"]);
@@ -373,6 +376,68 @@ describe("Tasks execution history and details", () => {
     expect(panel.clearListButton.classList.contains("icon-x")).toBeTrue();
     expect(panel.clearListButton.disabled).toBeTrue();
     expect(panel.runButton.disabled).toBeFalse();
+    expect(panel.listMuteButton.textContent).toBe("");
+    expect(
+      panel.listMuteButton.matches(".tasks-list-action.native-key-bindings.icon.icon-unmute"),
+    ).toBeTrue();
+    expect(panel.muteButton.matches("button.btn.icon.is-icon-only:empty")).toBeTrue();
+    expect(panel.listMuteButton.getAttribute("aria-pressed")).toBe("false");
+    expect([...panel.toolbar.children]).toEqual([
+      panel.stopButton,
+      panel.toggleLogButton,
+      panel.copyButton,
+      panel.removeButton,
+      panel.muteButton,
+      panel.rerunButton,
+    ]);
+  });
+  it("keeps both notification controls synchronized with the owner's local mute state", () => {
+    actions.muted = true;
+    const job = addJob(target("Compile"), "passed");
+    openPanel();
+    for (const button of [panel.listMuteButton, panel.muteButton]) {
+      expect(button.textContent).toBe("");
+      expect(button.classList.contains("icon-mute")).toBeTrue();
+      expect(button.classList.contains("icon-unmute")).toBeFalse();
+      expect(button.classList.contains("selected")).toBeTrue();
+      expect(button.getAttribute("aria-pressed")).toBe("true");
+      expect(button.getAttribute("aria-label")).toBe("Unmute task notifications");
+      expect(tooltipTitle(button)).toBe("Unmute task notifications");
+      const [tooltip] = lumine.tooltips.findTooltips(button);
+      expect(tooltip.options.keyBindingCommand).toBe("tasks:toggle-mute");
+    }
+    panel.selectJob(job);
+    expect(panel.muteButton.hidden).toBeFalse();
+    panel.setMuted(false);
+    panel.showList();
+    for (const button of [panel.listMuteButton, panel.muteButton]) {
+      expect(button.classList.contains("icon-mute")).toBeFalse();
+      expect(button.classList.contains("icon-unmute")).toBeTrue();
+      expect(button.classList.contains("selected")).toBeFalse();
+      expect(button.getAttribute("aria-pressed")).toBe("false");
+      expect(button.getAttribute("aria-label")).toBe("Mute task notifications");
+      expect(tooltipTitle(button)).toBe("Mute task notifications");
+    }
+    expect(panel.muteButton.hidden).toBeTrue();
+  });
+  it("dispatches the shared mute command once per button without changing preferences", () => {
+    const job = addJob(target("Compile"), "passed");
+    openPanel();
+    const dispatch = spyOn(panel, "dispatch");
+    const setConfig = spyOn(lumine.config, "set");
+    panel.listMuteButton.click();
+    panel.selectJob(job);
+    panel.muteButton.click();
+    expect(dispatch.calls.allArgs()).toEqual([["tasks:toggle-mute"], ["tasks:toggle-mute"]]);
+    expect(panel.muted).toBeFalse();
+    expect(setConfig).not.toHaveBeenCalled();
+    expect(actions.runTarget).not.toHaveBeenCalled();
+    const buttons = [panel.listMuteButton, panel.muteButton];
+    panel.destroy();
+    panel.setMuted(true);
+    for (const button of buttons) button.click();
+    expect(dispatch).toHaveBeenCalledTimes(2);
+    for (const button of buttons) expect(button.getAttribute("aria-pressed")).toBe("false");
   });
   it("filters all running phases together and toggles terminal statuses without deleting logs", () => {
     const definition = target("Compile");

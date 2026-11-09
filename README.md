@@ -18,7 +18,7 @@ Fork of [noseglid/atom-build](https://github.com/noseglid/atom-build).
 
 ## Installation
 
-To install `build` search for it in the Install pane of the Lumine settings, or run the command `lumine --install lumine-code/tasks`.
+To install `tasks` search for it in the Install pane of the Lumine settings, or run the command `lumine --install lumine-code/tasks`.
 
 ## Commands
 
@@ -30,6 +30,7 @@ Commands available in `lumine-workspace`:
 - `tasks:clear-logs`: remove all completed logs without opening Tasks or stopping running tasks,
 - `tasks:toggle`: show or hide the Tasks view,
 - `tasks:toggle-focus`: focus Tasks or return to the center pane (Alt+B),
+- `tasks:toggle-mute`: temporarily mute or unmute task notifications,
 - `tasks:observed-files`: list documents observed for compile-on-save,
 - `tasks:clear-observed`: stop observing all documents,
 - `tasks:next-error`: open the next matched diagnostic,
@@ -60,11 +61,15 @@ Commands available in `.tasks-targets`:
 
 The Tasks icon is visible in the status bar by default. Click it to toggle the bottom panel; Alt+B toggles focus between Tasks and the center editor. Its context menu offers task execution, stopping runs and managing observed documents. Compiler packages share this control instead of adding their own status or observation indicators.
 
-The tools icon stays neutral and pulses while any execution is preparing, running or collecting results, including while Tasks is visible. The upper count shows unread completed logs in the color of the worst unread result, with failures taking priority over cancelled results, then successful results. The tooltip includes counts and outcomes. Revealing Tasks in any visible dock pane acknowledges these results and clears the upper count; keyboard focus is not required. Results completed while Tasks is visible are already seen and add no upper count. The lower count shows distinct canonical documents observed for compile-on-save across providers, excluding dependency-watch paths.
+The tools icon stays neutral and pulses while any execution is preparing, running or collecting results, including while Tasks is visible. The upper count shows unread completed logs in the color of the worst unread result, with failures taking priority over cancelled results, then successful results. The tooltip includes counts and outcomes. A visible execution list acknowledges all completed logs, including when opened or restored without keyboard focus. A visible detail view acknowledges only its selected execution; other executions remain unread and add to the count when they finish. Selecting another detail view acknowledges that execution, and Back to the list acknowledges all remaining results. Opening details while Tasks is hidden does not acknowledge anything until they become visible. The lower count shows distinct canonical documents observed for compile-on-save across providers, excluding dependency-watch paths.
 
 Run Task from the Tasks menu, its status control or the command palette opens a picker of available project and document tasks. Choosing an entry starts that task immediately. Opening or dismissing the picker leaves the execution history unchanged. Document tool packages can also start compiler tasks directly through the shared service.
 
 Running or rerunning a task, using a compiler package command or compiling an observed document never opens Tasks or moves focus to it. The shared status control signals progress and results, and logs remain available in execution history. Use `tasks:toggle` to show or hide Tasks, or `tasks:toggle-focus` to focus it or return to the center editor.
+
+**Show Notifications** (`tasks.showNotifications`) is enabled by default and reports each task's start and its successful, failed or cancelled outcome. **Open log** opens that exact execution's details and marks only that execution as read; **Mark as read** acknowledges only that execution without opening Tasks. Notifications remain transient, and either action dismisses its notification. Creating a task definition has no separate notification.
+
+The **Mute Notifications** icon toggle in the panel header, also available under **Packages > Tasks**, changes only the current session's mute state; it is not saved or written to configuration. Its icon reflects the actual mute state, while a highlight appears only when that state overrides **Show Notifications**. Changing **Show Notifications** resets the local state to the setting and clears the override highlight. Muting leaves progress, diagnostics and logs active.
 
 The task picker reloads its choices every time it opens. While it is open, press F5 or use its Refresh Tasks action to reload without closing the picker, changing the search query or modifying execution history. Refresh Tasks is also available under Packages > Tasks while the picker has focus.
 
@@ -126,7 +131,7 @@ Adjust the output surface in your `styles.css`:
 
 ## Services
 
-- [`build`](docs/tasks.md): provided to register document compilers, run and observe tasks, and inspect their diagnostics, logs and artifacts.
+- [`tasks`](docs/tasks.md): provided to register document compilers, run and observe tasks, and inspect their diagnostics, logs and artifacts.
 - `status-bar`: consumed to show progress, unread results and the observed-document count.
 - `busy-signal`: consumed to report a target while its process is running.
 - `linter.registry`: consumed to publish diagnostics parsed from output.

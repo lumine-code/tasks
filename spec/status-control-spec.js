@@ -234,7 +234,7 @@ describe("Shared Tasks status control", () => {
     expect(main.statusObservedCount.hidden).toBeTrue();
   });
 
-  it("acknowledges all new logs when Tasks opens and keeps retained failures neutral afterwards", async () => {
+  it("acknowledges all new logs when the history list opens and keeps retained failures neutral afterwards", async () => {
     provider("first");
     const iconColor = getComputedStyle(main.statusIcon).color;
     const passed = await complete();
@@ -268,6 +268,88 @@ describe("Shared Tasks status control", () => {
     expect(main.statusElement.dataset.state).toBe("idle");
     expect(main.statusNewIndicator.hidden).toBeTrue();
     expect(main.manager.getJobs()).toEqual([cancelled, failed]);
+  });
+
+  it("reads only visible execution details and acknowledges the remaining results on Back", async () => {
+    provider("first");
+    const passed = await complete();
+    const cancelled = main.manager.run({ providerId: "first", filePath: source });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    cancelled.stop();
+    await cancelled.completion;
+    const failed = await complete("first", 1);
+    const originalLogs = [passed, cancelled, failed].map((job) => job.log.getText());
+    const failedColor = getComputedStyle(main.statusNewIndicator).color;
+    expect(main.statusElement.dataset.new).toBe("3");
+    expect(main.statusElement.dataset.state).toBe("failed");
+
+    const panel = main.ensurePanel();
+    expect(panel.showJob(failed.id)).toBeTrue();
+    expect(main.isTasksPanelVisible()).toBeFalse();
+    expect(main.statusElement.dataset.new).toBe("3");
+    await panel.show();
+
+    expect(panel.getSelectedJob()).toBe(failed);
+    expect(main.statusElement.dataset.new).toBe("2");
+    expect(main.statusNewIndicator.textContent).toBe("2");
+    expect(main.statusElement.dataset.state).toBe("cancelled");
+    const cancelledColor = getComputedStyle(main.statusNewIndicator).color;
+    expect(cancelledColor).not.toBe(failedColor);
+    panel.showJob(passed.id);
+    expect(main.statusElement.dataset.new).toBe("1");
+    expect(main.statusElement.dataset.state).toBe("cancelled");
+
+    const later = await complete("first", 1);
+    const laterLog = later.log.getText();
+    expect(panel.getSelectedJob()).toBe(passed);
+    expect(main.statusElement.dataset.new).toBe("2");
+    expect(main.statusNewIndicator.textContent).toBe("2");
+    expect(main.statusElement.dataset.state).toBe("failed");
+    expect(getComputedStyle(main.statusNewIndicator).color).toBe(failedColor);
+    panel.showJob(cancelled.id);
+    expect(main.statusElement.dataset.new).toBe("1");
+    expect(main.statusElement.dataset.state).toBe("failed");
+
+    panel.backButton.click();
+
+    expect(panel.mode).toBe("list");
+    expect(main.statusElement.dataset.new).toBe("0");
+    expect(main.statusElement.dataset.state).toBe("idle");
+    expect(main.statusNewIndicator.hidden).toBeTrue();
+    expect(main.manager.getJobs()).toEqual([passed, cancelled, failed, later]);
+    expect(main.manager.getJobs().map((job) => job.log.getText())).toEqual([
+      ...originalLogs,
+      laterLog,
+    ]);
+    for (const job of main.manager.getJobs()) expect(job.log.destroyed).toBeFalse();
+  });
+
+  it("acknowledges a restored visible history list without requiring panel focus", async () => {
+    provider("first");
+    const editor = await lumine.workspace.open(source);
+    try {
+      const first = await complete("first", 1);
+      const second = await complete();
+      const panel = main.deserializeTasksPanel();
+      expect(panel.mode).toBe("list");
+      expect(main.statusElement.dataset.new).toBe("2");
+
+      await lumine.workspace.open(panel, {
+        location: "bottom",
+        activatePane: false,
+        pending: false,
+      });
+      lumine.workspace.getBottomDock().show();
+      editor.getElement().focus();
+
+      expect(main.isTasksPanelVisible()).toBeTrue();
+      expect(panel.element.contains(document.activeElement)).toBeFalse();
+      expect(main.statusElement.dataset.new).toBe("0");
+      expect(main.statusNewIndicator.hidden).toBeTrue();
+      expect(main.manager.getJobs()).toEqual([first, second]);
+    } finally {
+      editor.destroy();
+    }
   });
 
   it("clears completed logs from the status menu without creating a panel or stopping active work", async () => {
@@ -370,7 +452,7 @@ describe("Shared Tasks status control", () => {
     expect(main.manager.getJobs()).toEqual([job]);
   });
 
-  it("shows no new-log color or count for completions while Tasks is visible", async () => {
+  it("shows no new-log color or count for completions while the history list is visible", async () => {
     provider("first");
     await main.ensurePanel().show();
     const failed = await complete("first", 1);
@@ -446,6 +528,42 @@ describe("Shared Tasks status control", () => {
       await complete("first", 1);
       expect(main.statusNewIndicator.hidden).toBeTrue();
       expect(main.statusElement.dataset.state).toBe("idle");
+    } finally {
+      otherPane.destroy();
+    }
+  });
+
+  it("reads only the selected details in a split dock without requiring their pane to be active", async () => {
+    provider("first");
+    const first = await complete("first", 1);
+    const second = await complete();
+    const panel = main.ensurePanel();
+    panel.showJob(first.id);
+    await panel.show();
+    expect(main.statusElement.dataset.new).toBe("1");
+    expect(main.statusElement.dataset.state).toBe("passed");
+    const otherElement = document.createElement("div");
+    const other = {
+      getTitle: () => "Other",
+      getElement: () => otherElement,
+      getDefaultLocation: () => "bottom",
+      getAllowedLocations: () => ["bottom"],
+    };
+    const otherPane = lumine.workspace.paneForItem(panel).splitRight({ items: [other] });
+    otherPane.activate();
+    try {
+      expect(main.isTasksPanelVisible()).toBeTrue();
+      expect(lumine.workspace.getBottomDock().getActivePaneItem()).toBe(other);
+
+      panel.showJob(second.id);
+
+      expect(lumine.workspace.getBottomDock().getActivePaneItem()).toBe(other);
+      expect(main.statusNewIndicator.hidden).toBeTrue();
+      const later = await complete("first", 1);
+      expect(panel.getSelectedJob()).toBe(second);
+      expect(main.statusElement.dataset.new).toBe("1");
+      expect(main.statusElement.dataset.state).toBe("failed");
+      expect(main.manager.getJobs()).toEqual([first, second, later]);
     } finally {
       otherPane.destroy();
     }

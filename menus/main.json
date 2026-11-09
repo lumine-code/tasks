@@ -95,6 +95,10 @@
               "command": "tasks:toggle-focus"
             },
             {
+              "label": "Mute Notifications",
+              "command": "tasks:toggle-mute"
+            },
+            {
               "type": "separator"
             },
             {
