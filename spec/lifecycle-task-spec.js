@@ -37,20 +37,23 @@ describe("Tasks task generation and shutdown", () => {
       child.stdout.destroy();
       child.stderr.destroy();
     }
+    await lumine.fileWatchClient.settlePendingTeardown();
     await tick();
   });
 
   const run = () => manager.run({ providerId: "lifecycle", filePath: source });
+  const started = (job) =>
+    window.conditionPromise(() => Boolean(job.process), "the lifecycle fixture to start");
 
   it("starts a replacement provider while the previous generation is still terminating", async () => {
     const old = run();
-    await tick();
+    await started(old);
     registration.dispose();
     const newer = manager.registerProvider({ ...provider, name: "New generation" });
     const current = run();
     expect(current).not.toBe(old);
     expect(current.name).toBe("New generation");
-    await tick();
+    await started(current);
     expect(children.length).toBe(2);
     children[0].emit("close", 1, null);
     await old.completion;
@@ -65,11 +68,11 @@ describe("Tasks task generation and shutdown", () => {
 
   it("starts a new manual request after cancellation before the old transport closes", async () => {
     const old = run();
-    await tick();
+    await started(old);
     old.stop();
     const next = run();
     expect(next).not.toBe(old);
-    await tick();
+    await started(next);
     expect(children.length).toBe(2);
     children[0].emit("close", null, "SIGTERM");
     children[1].emit("close", 0, null);
@@ -98,7 +101,7 @@ describe("Tasks task generation and shutdown", () => {
 
   it("does not add a queued save to a newer job accepted by a terminal listener", async () => {
     const first = run();
-    await tick();
+    await started(first);
     manager.run({ providerId: "lifecycle", filePath: source, reason: "save" });
     let next;
     const lease = manager.onDidFinishJob((job) => {
@@ -106,7 +109,10 @@ describe("Tasks task generation and shutdown", () => {
     });
     children[0].emit("close", 0, null);
     await first.completion;
-    await tick();
+    await window.conditionPromise(
+      () => Boolean(next?.process),
+      "the terminal listener's task to start",
+    );
     expect(next).not.toBe(first);
     children[1].emit("close", 0, null);
     await next.completion;

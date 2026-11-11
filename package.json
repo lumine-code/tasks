@@ -140,7 +140,8 @@
     "prettier": "^3.9.10"
   },
   "specPackages": [
-    "busy-signal"
+    "busy-signal",
+    "linter"
   ],
   "overrides": {
     "eslint@^10.14.0": {

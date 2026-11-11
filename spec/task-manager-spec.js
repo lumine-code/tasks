@@ -40,6 +40,7 @@ describe("Shared build tasks", () => {
   });
   afterEach(async () => {
     manager.dispose();
+    await lumine.fileWatchClient.settlePendingTeardown();
     await tick();
   });
   function run(filePath = source, reason = "manual") {
@@ -47,7 +48,7 @@ describe("Shared build tasks", () => {
   }
   async function started(filePath = source) {
     const job = run(filePath);
-    await tick();
+    await window.conditionPromise(() => Boolean(job.process), "the task fixture to start");
     expect(job.state).toBe("running");
     return job;
   }
@@ -183,7 +184,7 @@ describe("Shared build tasks", () => {
     const secondRegistration = manager.registerProvider({ ...provider, id: "other" });
     const job = await started();
     const other = manager.run({ providerId: "other", filePath: second });
-    await tick();
+    await window.conditionPromise(() => Boolean(other.process), "the other provider to start");
     registration.dispose();
     await job.completion;
     expect(job.state).toBe("cancelled");
@@ -197,7 +198,7 @@ describe("Shared build tasks", () => {
     for (let index = 0; index < 4; index++) expect(run(source, "save")).toBe(job);
     children[0].emit("close", 0, null);
     await job.completion;
-    await tick();
+    await window.conditionPromise(() => children.length === 2, "the queued save to start");
     expect(spawn).toHaveBeenCalledTimes(2);
     expect(manager.getJobs().length).toBe(2);
   });
@@ -285,12 +286,18 @@ describe("Shared build tasks", () => {
     expect(manager.associateArtifact(otherTarget, secondOutput)).toBeTrue();
     const first = manager.run(manager.getArtifactTarget(firstOutput));
     const other = manager.run(manager.getArtifactTarget(secondOutput));
-    await tick();
+    await window.conditionPromise(
+      () => Boolean(first.process && other.process),
+      "both artifact targets to start",
+    );
     expect(first.providerId).toBe("fixture");
     expect(first.filePath).toBe(source);
     expect(other.providerId).toBe("other");
     expect(other.filePath).toBe(second);
-    expect(spawn.calls.allArgs().map((args) => args[1])).toEqual([[source], [second]]);
+    expect(spawn).toHaveBeenCalledTimes(2);
+    expect(spawn.calls.allArgs().map((args) => args[1])).toEqual(
+      jasmine.arrayContaining([[source], [second]]),
+    );
     children[0].emit("close", 0, null);
     children[1].emit("close", 0, null);
     await Promise.all([first.completion, other.completion]);

@@ -60,11 +60,13 @@ describe("Shared Tasks status control", () => {
   }
   async function complete(id = "first", code = 0) {
     const job = main.manager.run({ providerId: id, filePath: source });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    children.at(-1).emit("close", code, null);
+    await started(job);
+    job.process.emit("close", code, null);
     await job.completion;
     return job;
   }
+  const started = (job) =>
+    window.conditionPromise(() => Boolean(job.process), "the status fixture to start");
 
   it("owns one themed tools icon across multiple document providers", () => {
     provider("first");
@@ -208,7 +210,7 @@ describe("Shared Tasks status control", () => {
     const first = main.manager.run({ providerId: "first", filePath: source });
     const second = main.manager.run({ providerId: "second", filePath: source });
     expect(main.statusElement.dataset.running).toBe("true");
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await Promise.all([started(first), started(second)]);
     expect(main.statusNewIndicator.hidden).toBeTrue();
     expect(main.statusElement.dataset.state).toBe("idle");
     expect(main.statusElement.dataset.observed).toBe("1");
@@ -218,12 +220,12 @@ describe("Shared Tasks status control", () => {
       "2 active tasks, 1 observed document",
     );
     expect(tiles().length).toBe(1);
-    children[0].emit("close", 1, null);
+    first.process.emit("close", 1, null);
     await first.completion;
     expect(main.statusElement.dataset.new).toBe("1");
     expect(main.statusElement.dataset.state).toBe("failed");
     expect(main.statusElement.dataset.running).toBe("true");
-    children[1].emit("close", 0, null);
+    second.process.emit("close", 0, null);
     await second.completion;
     expect(main.statusElement.dataset.new).toBe("2");
     expect(main.statusElement.dataset.state).toBe("failed");
@@ -241,7 +243,7 @@ describe("Shared Tasks status control", () => {
     expect(main.statusElement.dataset.state).toBe("passed");
     const passedColor = getComputedStyle(main.statusNewIndicator).color;
     const cancelled = main.manager.run({ providerId: "first", filePath: source });
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await started(cancelled);
     cancelled.stop();
     await cancelled.completion;
     expect(main.statusElement.dataset.state).toBe("cancelled");
@@ -274,7 +276,7 @@ describe("Shared Tasks status control", () => {
     provider("first");
     const passed = await complete();
     const cancelled = main.manager.run({ providerId: "first", filePath: source });
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await started(cancelled);
     cancelled.stop();
     await cancelled.completion;
     const failed = await complete("first", 1);
@@ -364,7 +366,7 @@ describe("Shared Tasks status control", () => {
     const passed = await complete();
     const failed = await complete("first", 1);
     const cancelled = main.manager.run({ providerId: "first", filePath: source });
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await started(cancelled);
     cancelled.stop();
     await cancelled.completion;
 
@@ -470,7 +472,7 @@ describe("Shared Tasks status control", () => {
   it("counts a cancelled completion once and does not count individual output chunks", async () => {
     provider("first");
     const job = main.manager.run({ providerId: "first", filePath: source });
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await started(job);
     children[0].stdout.emit("data", Buffer.from("one"));
     children[0].stdout.emit("data", Buffer.from("two"));
     expect(main.statusNewIndicator.hidden).toBeTrue();
@@ -593,12 +595,12 @@ describe("Shared Tasks status control", () => {
   it("targets the focused history row when a workspace action is dispatched", async () => {
     provider("first");
     const first = main.manager.run({ providerId: "first", filePath: source });
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await started(first);
     children[0].stdout.emit("data", Buffer.from("first output"));
     children[0].emit("close", 0, null);
     await first.completion;
     const second = main.manager.run({ providerId: "first", filePath: source });
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await started(second);
     children[1].stdout.emit("data", Buffer.from("second output"));
     const panel = main.ensurePanel();
     await panel.show();
