@@ -125,7 +125,7 @@ describe("Current task reports and execution history", () => {
   });
 
   it("verifies known dependencies before publication even before watcher delivery", async () => {
-    provider.getWatchPaths = () => [child];
+    provider.getDiagnosticPaths = () => [child];
     let release;
     provider.collectResult = () =>
       new Promise((resolve) => {

@@ -11,7 +11,7 @@ Fork of [noseglid/atom-build](https://github.com/noseglid/atom-build).
 - **Execution history**: lists each run from preparation onward, with sortable status, start time, duration, target and source columns and a detail view for its output.
 - **Process control**: runs independent documents concurrently, coalesces repeated saves and stops compiler process trees.
 - **Diagnostics**: combines provider diagnostics and named regular-expression captures, navigates results and publishes to the linter.
-- **Compile on save**: observes explicitly selected documents and their provider-supplied dependencies, including after an editor closes.
+- **Compile on save**: observes each selected source document, including after its editor closes.
 - **Workspace integration**: reports progress through busy-signal and the status bar when available.
 
 ![Track active tasks and inspect a completed build log.](.github/demo.png)
@@ -87,7 +87,7 @@ Removing a completed log removes its history row and releases its output; the la
 
 The task picker combines configured tasks from every open project with compiler actions for the current document. The Tasks panel keeps the center document's context, so focusing run details preserves those document choices. Viewing an earlier execution does not change the available tasks or start another run.
 
-Different documents can compile concurrently. Repeated save requests for one busy document schedule one subsequent compilation. Artifact viewers can pause reloads until the associated task has collected its results. Provider packages retain their language-specific commands, settings and document navigation.
+Different documents can compile concurrently. A settled source change during a running task schedules one subsequent compilation; saving identical contents does not. Artifact viewers can pause reloads until the associated task has collected its results. Provider packages retain their language-specific commands, settings and document navigation.
 
 Observed Documents lists compile-on-save sources from all compiler providers. Search by provider or source path, open a selected source, stop observing one document or clear the whole list. Removing an entry keeps the list open and preserves the remaining selection.
 

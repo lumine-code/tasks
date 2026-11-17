@@ -59,7 +59,7 @@ interface TaskProvider {
   name: string;
   supports(filePath: string): boolean;
   resolve?(filePath: string): string;
-  getWatchPaths?(filePath: string): string[];
+  getDiagnosticPaths?(filePath: string): string[];
   prepare(
     request: { filePath: string; reason: string },
     signal: AbortSignal,
@@ -150,7 +150,7 @@ interface Job {
 }
 ```
 
-Provider `id`, `name`, `supports` and `prepare` are required. IDs are unique within a task manager. `supports`, `resolve` and `getWatchPaths` are synchronous; `resolve` maps an included document to its canonical root. Providers retain language settings, compiler discovery, argument construction, log parsing and artifact identification. Plans may carry provider-specific data for `collectResult`.
+Provider `id`, `name`, `supports` and `prepare` are required. IDs are unique within a task manager. `supports`, `resolve` and `getDiagnosticPaths` are synchronous; `resolve` maps an included document to its canonical root. `getDiagnosticPaths` lists additional inputs used only to validate diagnostics. Automatic compilation observes only the canonical source; providers cannot add dependency or output paths to its triggers. Providers retain language settings, compiler discovery, argument construction, log parsing and artifact identification. Plans may carry provider-specific data for `collectResult`.
 
 `cmd` is required in each plan. Arguments default to an empty array, the working directory defaults to the source directory, environment values extend the editor's environment and `shell` defaults to `false`. Relative artifact paths resolve against the working directory; omitted `sourcePath` becomes the canonical source path. Common artifact kinds include `pdf`, `png` and `svg`. Diagnostic positions are zero-based and use the linter's shared message shape.
 
@@ -213,13 +213,19 @@ A configured target removed from discovery becomes unavailable for new requests.
 
 `getJobs` returns retained jobs in creation order; `getLogs` returns them newest first, including active jobs. The execution list can sort these jobs by status, start time, duration, target and source; `Job.id` identifies the same execution across sorting and updates. `getJob` queries the latest job by canonical provider and source path, including when its output is no longer retained. `getArtifacts` resolves the supplied source through each provider and returns its latest expected or collected artifacts. `getMessages` returns the current diagnostic reports, separately from historical `Job.diagnostics`. Removing a completed log releases its output and removes that execution's history row without cancelling another job or erasing the latest result used by those queries. Active logs cannot be removed. History, displayed log lines and captured stream characters have configurable limits; `outputTruncated` reports stream truncation.
 
-Current diagnostics belong to an execution's source contents, rather than merely its filename. After provider preparation saves any source editors, the manager arms observations and captures the canonical source and the provider's current `getWatchPaths` dependencies before spawning. It verifies those contents again before publishing the collected report. Result collection refreshes dependencies and adds each diagnostic's subject file; paths first discovered at that stage are protected from discovery onward. Providers should expose all known compiler inputs through `getWatchPaths` before execution, including closed or currently missing files.
+Current diagnostics belong to an execution's source contents, rather than merely its filename. After provider preparation saves any source editors, the manager arms observations and captures the canonical source and the provider's current `getDiagnosticPaths` dependencies before spawning. It verifies those contents again before publishing the collected report. Result collection refreshes dependencies and adds each diagnostic's subject file; paths first discovered at that stage are protected from discovery onward. Providers should expose all known compiler inputs through `getDiagnosticPaths` before execution, including closed or currently missing files.
 
 Deleting an observed input or changing its bytes permanently withdraws that execution's current report. Creating a previously missing input also withdraws it. A same-content atomic save preserves the report; a coalesced delete and recreation with different contents invalidates it even when delivered as one update. Observation recovery withdraws the report conservatively because changes may have been lost. Observation and read errors also withdraw it and use the normal notification error channel. The manager owns these observations independently of compile-on-save and open editors, and releases them when a report is invalidated, replaced, cleared or its provider retires.
 
 Invalidation leaves the process, terminal status, historical diagnostics and log intact. Late result collection can complete the historical job but cannot restore its withdrawn report. `clearMessages` clears current reports without erasing historical `Job.diagnostics`; a new execution replaces the current report for its provider and canonical source. Neither closing an editor nor removing a retained log invalidates an otherwise current report. Queries perform no filesystem reads or provider callbacks.
 
-`setObserved` enables compile-on-save for a canonical document and optional `getWatchPaths` dependencies, including when their editors are closed. File changes are debounced; dependency paths are refreshed after each run. An open matching editor using the None grammar suppresses automatic compilation. Disabling observation uses the canonical source path from `getObserved`, clears pending reruns and releases its watchers. It does not interrupt a manually running task.
+`setObserved` enables compile-on-save for exactly one canonical source document, including when its editor is closed. Included sources, bibliography, images and compiler outputs never become automatic triggers through diagnostic tracking. Native change and recovery events are hints: Tasks waits for a quiet period before reading and comparing source contents, so timestamp changes, identical rewrites and duplicate or delayed delivery do not start another execution. A hint received during a read postpones verification until the source settles again. Missing source paths remain observed so creation can trigger a run. Completion checks use the same settling process instead of reading a file in the middle of a save.
+
+Tasks acknowledges the accepted source contents before preparation and again before spawning the compiler. Preparation saves and delayed notifications for contents already consumed by that execution do not queue a second task. A settled content change during compilation is retained until the next execution acknowledges its source; after the current task finishes, that change requests one subsequent run. This remains true if a settled change is later reverted, because the compiler may have read the intermediate contents. Temporary missing, empty or partial contents restored within the quiet period are not accepted as a source change. Direct service requests with `reason: "save"` retain their explicit coalescing semantics independently of filesystem hints.
+
+Stopping a task discards its pending automatic requests. A later source change can start another task; refreshing the stopped task's accepted source must not consume that later change. Cancelled jobs do not request a completion check.
+
+An open matching editor using the None grammar suppresses automatic compilation. Disabling observation uses the canonical source path from `getObserved`, clears pending reruns and releases its watchers. It does not interrupt a manually running task.
 
 ## Teardown
 

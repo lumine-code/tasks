@@ -109,18 +109,15 @@ describe("Task source snapshots", () => {
   it("does not miss a source replacement while observation is arming", async () => {
     const armed = deferred();
     readiness = armed.promise;
-    const createReadStream = fs.createReadStream.bind(fs);
+    const read = snapshots.read.bind(snapshots);
     let initialRead;
-    spyOn(fs, "createReadStream").and.callFake((filePath, options) => {
-      const stream = createReadStream(filePath, options);
-      initialRead ||= new Promise((resolve, reject) => {
-        stream.once("end", resolve);
-        stream.once("error", reject);
-      });
-      return stream;
+    spyOn(snapshots, "read").and.callFake((filePath) => {
+      const pending = read(filePath);
+      initialRead ||= pending;
+      return pending;
     });
     const added = snapshots.add([source]);
-    // The initial read starts in add(), before readiness resolves.
+    // The coherent baseline finishes before the watcher becomes ready.
     await initialRead;
     fs.writeFileSync(source, "replacement\n");
     armed.resolve();
@@ -150,10 +147,10 @@ describe("Task source snapshots", () => {
   it("settles active and queued source reads when their owner retires", async () => {
     const inputs = Array.from({ length: 12 }, (_, index) => path.join(directory, `${index}.pdf`));
     for (const input of inputs) fs.writeFileSync(input, "compiler input\n");
-    const streams = spyOn(fs, "createReadStream").and.callThrough();
+    const opens = spyOn(fs.promises, "open").and.callThrough();
     const adding = snapshots.add(inputs);
-    expect(streams.calls.count()).toBeGreaterThan(0);
-    expect(streams.calls.count()).toBeLessThan(inputs.length);
+    expect(opens.calls.count()).toBeGreaterThan(0);
+    expect(opens.calls.count()).toBeLessThan(inputs.length);
     snapshots.dispose();
     await adding;
     expect(await snapshots.verify()).toBeFalse();
