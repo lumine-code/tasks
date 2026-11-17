@@ -132,7 +132,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@lumine-code/fs-temp": "github:lumine-code/fs-temp#bc67dcfeaf8dc588ad6b29168c5962f737824462",
+    "@lumine-code/fs-temp": "github:lumine-code/fs-temp#26eaeb8be8bc3a42de80a06b07c9108944e3a57f",
     "eslint": "^10.15.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-n": "^18.5.0",
@@ -145,10 +145,10 @@
   ],
   "overrides": {
     "eslint@^10.15.0": {
-      "minimatch": "11.0.8"
+      "minimatch": "11.0.9"
     },
     "@eslint/config-array@0.23.5": {
-      "minimatch": "11.0.8"
+      "minimatch": "11.0.9"
     }
   }
 }
