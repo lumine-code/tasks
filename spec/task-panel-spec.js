@@ -860,7 +860,7 @@ describe("Tasks execution history and details", () => {
     expect(panel.getSelectedJob()).toBe(rerun);
     expect(targets).toContain(other);
   });
-  it("navigates the displayed sort order with arrows and keeps native log and input keys", async () => {
+  it("navigates the displayed sort order and scopes log scrolling away from native inputs", async () => {
     const definition = target("Compile");
     const first = addJob(definition, "passed");
     const second = addJob(definition, "passed");
@@ -872,9 +872,10 @@ describe("Tasks execution history and details", () => {
     expect(document.activeElement).toBe(panel.rows.get(first.id).element);
     await lumine.commands.dispatch(panel.rows.get(first.id).element, "core:confirm");
     expect(panel.getSelectedJob()).toBe(first);
-    expect(lumine.commands.canDispatch(panel.output, "core:move-down")).toBeFalse();
+    expect(lumine.commands.canDispatch(panel.output, "core:move-down")).toBeTrue();
     const input = document.createElement("input");
     panel.detailsView.append(input);
+    expect(lumine.commands.canDispatch(input, "core:page-down")).toBeFalse();
     expect(lumine.commands.canDispatch(input, "core:cancel")).toBeFalse();
     await lumine.commands.dispatch(panel.output, "core:cancel");
     expect(panel.mode).toBe("list");

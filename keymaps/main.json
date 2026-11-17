@@ -8,5 +8,26 @@
   },
   ".tasks-targets lumine-text-editor[mini]": {
     "f5": "tasks:refresh-tasks"
+  },
+  ".tasks-panel .tasks-run-list:focus, .tasks-panel .tasks-run-row:focus": {
+    "up": "core:move-up",
+    "down": "core:move-down",
+    "enter": "core:confirm"
+  },
+  ".tasks-panel .task-output:focus": {
+    "up": "core:move-up",
+    "down": "core:move-down",
+    "home": "core:move-to-top",
+    "end": "core:move-to-bottom",
+    "pageup": "core:page-up",
+    "pagedown": "core:page-down"
+  },
+  ".platform-win32 .tasks-panel .task-output:focus, .platform-linux .tasks-panel .task-output:focus": {
+    "ctrl-home": "core:move-to-top",
+    "ctrl-end": "core:move-to-bottom"
+  },
+  ".platform-darwin .tasks-panel .task-output:focus": {
+    "cmd-up": "core:move-to-top",
+    "cmd-down": "core:move-to-bottom"
   }
 }

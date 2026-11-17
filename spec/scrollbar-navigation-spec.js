@@ -4,11 +4,15 @@ const { Emitter } = require("lumine");
 const { ipcRenderer } = require("electron");
 
 describe("Tasks scrollbar navigation", () => {
-  let panel, events, jobs, outputs, manager, controllers, stylesheet, actions;
+  let panel, events, jobs, outputs, manager, controllers, stylesheet, actions, bindings;
 
   beforeEach(async () => {
     jasmine.useRealClock();
     lumine.config.set("tasks.scrollToEnd", false);
+    bindings = lumine.keymaps.add(
+      "tasks-scrollbar-keyboard-spec",
+      lumine.keymaps.readKeymap(path.join(__dirname, "../keymaps/main.json")),
+    );
     const TasksPanel = require("../lib/tasks-panel");
     const TaskOutput = require("../lib/task-output");
     events = new Emitter();
@@ -75,6 +79,8 @@ describe("Tasks scrollbar navigation", () => {
     panel?.destroy();
     for (const controller of controllers ?? []) controller.dispose();
     stylesheet?.remove();
+    bindings?.dispose();
+    document.getSelection().removeAllRanges();
     events?.dispose();
     for (const output of outputs ?? []) output.destroy();
   });
@@ -89,6 +95,181 @@ describe("Tasks scrollbar navigation", () => {
     });
     expect(controller.layer.classList.contains("is-revealed")).toBeTrue();
   }
+
+  async function focusForKeyboard(element) {
+    await ipcRenderer.invoke("lumine:window", "focus");
+    await window.waitForFrames(() => document.hasFocus(), {
+      description: "trusted Tasks keyboard input to belong to the spec window",
+    });
+    element.focus({ preventScroll: true });
+    expect(document.activeElement).toBe(element);
+  }
+
+  async function key(keyCode, modifiers = [], character = false) {
+    for (const type of character ? ["keyDown", "char", "keyUp"] : ["keyDown", "keyUp"])
+      await ipcRenderer.invoke("lumine:window", "sendInputEvent", { type, keyCode, modifiers });
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  }
+
+  async function showOutput() {
+    panel.showJob(row().dataset.jobId);
+    await window.waitForFrames(() => controllers[1].publicGeometry?.canScrollVertically, {
+      description: "the selected log to have measured overflowing content",
+    });
+    await focusForKeyboard(panel.output);
+  }
+
+  it("handles physical history arrows and Enter, including the unchanged first-row boundary", async () => {
+    const rows = [...panel.list.children];
+    await focusForKeyboard(panel.list);
+    const reveal = spyOn(lumine.scrollbars, "reveal").and.callThrough();
+    const top = panel.list.scrollTop;
+
+    await key("Down");
+    expect(document.activeElement).toBe(rows[0]);
+    expect(panel.list.scrollTop).toBe(top);
+    expect(reveal).toHaveBeenCalledOnceWith(panel.list);
+    await expectActivity(controllers[0]);
+
+    controllers[0].activity.clear();
+    reveal.calls.reset();
+    await key("Up");
+    expect(document.activeElement).toBe(rows[0]);
+    expect(panel.list.scrollTop).toBe(top);
+    expect(reveal).toHaveBeenCalledOnceWith(panel.list);
+    await expectActivity(controllers[0]);
+
+    await key("Down");
+    expect(document.activeElement).toBe(rows[1]);
+    reveal.calls.reset();
+    await key("Enter");
+    expect(panel.mode).toBe("details");
+    expect(panel.selectedJob.id).toBe(rows[1].dataset.jobId);
+    expect(reveal).toHaveBeenCalledOnceWith(panel.output);
+    await expectActivity(controllers[1]);
+  });
+
+  const logKeys = [
+    ["Up", [], -1, "line"],
+    ["Down", [], 1, "line"],
+    ["PageUp", [], -1, "page"],
+    ["PageDown", [], 1, "page"],
+    ["Home", [], -1, "edge"],
+    ["End", [], 1, "edge"],
+    ...(process.platform === "darwin"
+      ? [
+          ["Up", ["meta"], -1, "edge"],
+          ["Down", ["meta"], 1, "edge"],
+        ]
+      : [
+          ["Home", ["control"], -1, "edge"],
+          ["End", ["control"], 1, "edge"],
+        ]),
+  ];
+  for (const [keyCode, modifiers, direction, unit] of logKeys) {
+    it(`scrolls the log and reveals its unchanged boundary for ${[...modifiers, keyCode].join("+")}`, async () => {
+      await showOutput();
+      const maximum = panel.output.scrollHeight - panel.output.clientHeight;
+      panel.output.scrollTop = Math.floor(maximum / 2);
+      const start = panel.output.scrollTop;
+      controllers[1].activity.clear();
+      const reveal = spyOn(lumine.scrollbars, "reveal").and.callThrough();
+
+      await key(keyCode, modifiers);
+
+      const moved = panel.output.scrollTop;
+      if (direction < 0) expect(moved).toBeLessThan(start);
+      else expect(moved).toBeGreaterThan(start);
+      if (unit === "edge") expect(moved).toBe(direction < 0 ? 0 : maximum);
+      expect(reveal).toHaveBeenCalledOnceWith(panel.output);
+      await expectActivity(controllers[1]);
+
+      const boundary = direction < 0 ? 0 : maximum;
+      panel.output.scrollTop = boundary;
+      controllers[1].activity.clear();
+      reveal.calls.reset();
+      await key(keyCode, modifiers);
+
+      expect(panel.output.scrollTop).toBe(boundary);
+      expect(reveal).toHaveBeenCalledOnceWith(panel.output);
+      await expectActivity(controllers[1]);
+    });
+  }
+
+  it("keeps physical header activation and source-link Enter separate from history selection", async () => {
+    const header = panel.headers.get("target").button;
+    const previousDirection = panel.sortDirection;
+    const reveal = spyOn(lumine.scrollbars, "reveal").and.callThrough();
+    await focusForKeyboard(header);
+
+    await key("Down");
+    expect(document.activeElement).toBe(header);
+    await key("Enter", [], true);
+    expect(panel.sortDirection).not.toBe(previousDirection);
+    expect(panel.mode).toBe("list");
+    expect(reveal).not.toHaveBeenCalled();
+
+    const selected = jobs.find((job) => job.id === row().dataset.jobId);
+    const sourceLink = panel.rows.get(selected.id).sourceLink;
+    const open = spyOn(lumine.workspace, "open").and.resolveTo();
+    await focusForKeyboard(sourceLink);
+    await key("Enter");
+    expect(open).toHaveBeenCalledOnceWith(selected.filePath, { searchAllPanes: true });
+    expect(panel.mode).toBe("list");
+    expect(reveal).toHaveBeenCalledOnceWith(panel.list);
+  });
+
+  it("leaves log text selection, native copy and details inputs outside navigation activity", async () => {
+    await showOutput();
+    const text = panel.output.firstChild.firstChild;
+    const range = document.createRange();
+    range.setStart(text, 0);
+    range.setEnd(text, Math.min(6, text.length));
+    document.getSelection().addRange(range);
+    const selected = document.getSelection().toString();
+    expect(selected.length).toBeGreaterThan(0);
+    const reveal = spyOn(lumine.scrollbars, "reveal").and.callThrough();
+
+    await key("C", [process.platform === "darwin" ? "meta" : "control"]);
+    expect(lumine.clipboard.read()).toBe(selected);
+    expect(document.getSelection().toString()).toBe(selected);
+    await key("Down", ["shift"]);
+    expect(reveal).not.toHaveBeenCalled();
+
+    const input = document.createElement("input");
+    input.value = "native text";
+    panel.detailsView.append(input);
+    await focusForKeyboard(input);
+    input.setSelectionRange(0, 0);
+    await key("End");
+    expect(input.selectionStart).toBe(input.value.length);
+    expect(reveal).not.toHaveBeenCalled();
+  });
+
+  it("keeps streamed follow-output scrolling quiet without renewing an earlier navigation pulse", async () => {
+    await showOutput();
+    lumine.config.set("tasks.scrollToEnd", true);
+    const controller = controllers[1];
+    controller.activity.clear();
+    const reveal = spyOn(lumine.scrollbars, "reveal").and.callThrough();
+
+    panel.model.append("\nNew streamed output\n");
+    await window.waitForFrames(
+      () => panel.output.scrollTop === panel.output.scrollHeight - panel.output.clientHeight,
+      { description: "follow-output to reveal the actual appended log tail" },
+    );
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    expect(panel.output.scrollTop).toBeGreaterThan(0);
+    expect(reveal).not.toHaveBeenCalled();
+    expect(controller.activity.active).toBeFalse();
+
+    await key("End");
+    const deadline = controller.activity.deadline;
+    panel.model.append("Another streamed output\n");
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    expect(reveal).toHaveBeenCalledOnceWith(panel.output);
+    expect(controller.activity.deadline).toBe(deadline);
+  });
 
   for (const command of ["tasks:open-details", "core:confirm"]) {
     it(`reveals the newly visible output once for ${command} without scrolling it`, async () => {
