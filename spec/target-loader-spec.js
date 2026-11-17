@@ -427,6 +427,26 @@ describe("tasks configuration loader", () => {
     );
   });
 
+  it("defaults each task to file writes and preserves an explicit content observation mode", () => {
+    const targets = targetsFromDocument(
+      [
+        { cmd: "node" },
+        { cmd: "node", observationMode: "write" },
+        { cmd: "node", observationMode: "content" },
+      ],
+      directory,
+      "tasks.json",
+    );
+    expect(targets.map((target) => target.observationMode)).toEqual(["write", "write", "content"]);
+  });
+
+  it("rejects invalid task observation modes with the configuration source", () => {
+    for (const observationMode of [null, false, "", "changed", "WRITE"])
+      expect(() =>
+        normalizeTarget({ cmd: "node", observationMode }, directory, "tasks.json"),
+      ).toThrowError(TypeError, /tasks\.json: observationMode must be 'write' or 'content'/);
+  });
+
   it("expands project, editor, selection, and cursor variables", () => {
     const target = normalizeTarget(
       {

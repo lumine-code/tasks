@@ -21,6 +21,7 @@ type JobRequest = { providerId: string; filePath: string; reason?: string };
 type ProviderFilter = { providerId?: string };
 type DocumentFilter = ProviderFilter & { filePath?: string };
 type ArtifactTarget = { providerId: string; filePath: string };
+type ObservationMode = "write" | "content";
 
 interface TaskService {
   registerProvider(provider: TaskProvider): Disposable;
@@ -38,7 +39,10 @@ interface TaskService {
   getArtifacts(filePath: string): Artifact[];
   associateArtifact(target: ArtifactTarget, artifactPath: string): boolean;
   getArtifactTarget(artifactPath: string): ArtifactTarget | null;
-  setObserved(request: { providerId: string; filePath: string }, enabled: boolean): boolean;
+  setObserved(
+    request: { providerId: string; filePath: string; observationMode?: ObservationMode },
+    enabled: boolean,
+  ): boolean;
   getObserved(filter?: ProviderFilter): Array<{ providerId: string; filePath: string }>;
   clearObserved(filter?: ProviderFilter): void;
   onDidStartJob(callback: (job: Job) => void): Disposable;
@@ -60,6 +64,7 @@ interface TaskProvider {
   supports(filePath: string): boolean;
   resolve?(filePath: string): string;
   getDiagnosticPaths?(filePath: string): string[];
+  observationMode?: ObservationMode;
   prepare(
     request: { filePath: string; reason: string },
     signal: AbortSignal,
@@ -219,9 +224,13 @@ Deleting an observed input or changing its bytes permanently withdraws that exec
 
 Invalidation leaves the process, terminal status, historical diagnostics and log intact. Late result collection can complete the historical job but cannot restore its withdrawn report. `clearMessages` clears current reports without erasing historical `Job.diagnostics`; a new execution replaces the current report for its provider and canonical source. Neither closing an editor nor removing a retained log invalidates an otherwise current report. Queries perform no filesystem reads or provider callbacks.
 
-`setObserved` enables compile-on-save for exactly one canonical source document, including when its editor is closed. Included sources, bibliography, images and compiler outputs never become automatic triggers through diagnostic tracking. Native change and recovery events are hints: Tasks waits for a quiet period before reading and comparing source contents, so timestamp changes, identical rewrites and duplicate or delayed delivery do not start another execution. A hint received during a read postpones verification until the source settles again. Missing source paths remain observed so creation can trigger a run. Completion checks use the same settling process instead of reading a file in the middle of a save.
+`setObserved` enables automatic execution for exactly one canonical source document, including when its editor is closed. Included sources, bibliography, images and compiler outputs never become automatic triggers through diagnostic tracking. The default `observationMode: "write"` reacts to source saves, replacements and timestamp updates even when the bytes are identical. A source write can signal that other compiler inputs changed; the task itself decides what needs rebuilding. Duplicate or delayed delivery of the same filesystem revision and recovery without a source change do not request another execution. Access-time changes caused by reading a source are ignored.
 
-Tasks acknowledges the accepted source contents before preparation and again before spawning the compiler. Preparation saves and delayed notifications for contents already consumed by that execution do not queue a second task. A settled content change during compilation is retained until the next execution acknowledges its source; after the current task finishes, that change requests one subsequent run. This remains true if a settled change is later reverted, because the compiler may have read the intermediate contents. Temporary missing, empty or partial contents restored within the quiet period are not accepted as a source change. Direct service requests with `reason: "save"` retain their explicit coalescing semantics independently of filesystem hints.
+A task can opt into `observationMode: "content"` to compare source bytes instead. This mode intentionally ignores identical rewrites, replacements and timestamp updates. Set the parameter on a configured task or provider, or override it for one canonical task with `setObserved({ providerId, filePath, observationMode: "content" }, true)`. The mode is captured when observation is enabled; an explicit override takes precedence over the provider default. Supplying a different mode for an already observed task resets that observation's baseline without starting a job or changing other tasks; omitting the mode preserves an existing observation. There is no global observation-mode setting.
+
+Native hints are debounced before inspecting the source. A hint received during inspection postpones verification until the source settles again. Missing source paths remain observed so creation can trigger a run. Completion checks use the same settling process, so a split or atomic save requests one execution rather than one per intermediate filesystem event.
+
+Tasks acknowledges the accepted source revision before preparation and again before spawning the compiler. Preparation saves and delayed notifications for a revision already accepted by that execution do not queue a second task. A settled source write during compilation requests one subsequent run; further writes coalesce until the next execution acknowledges its source. In content mode, only a settled byte change requests that run, including a change later reverted because the compiler may have read the intermediate contents. Direct service requests with `reason: "save"` retain their explicit coalescing semantics independently of filesystem hints.
 
 Stopping a task discards its pending automatic requests. A later source change can start another task; refreshing the stopped task's accepted source must not consume that later change. Cancelled jobs do not request a completion check.
 

@@ -156,6 +156,28 @@ describe("Tasks target catalog and task identity", () => {
     expect(job.targetId).toBe(selected.id);
   });
 
+  it("forwards each task's observation mode through its retained project provider", async () => {
+    configure(roots[0], [
+      command("Default", "default"),
+      command("Observe", "old", { observationMode: "content" }),
+    ]);
+    await main.refreshTargets();
+    const selected = main.targets.find((target) => target.name === "Observe");
+    const fallback = main.targets.find((target) => target.name === "Default");
+    main.ensureProjectProvider(selected);
+    main.ensureProjectProvider(fallback);
+    const provider = main.manager.providers.get(selected.providerId).provider;
+    expect(provider.observationMode).toBe("content");
+    expect(main.manager.providers.get(fallback.providerId).provider.observationMode).toBe("write");
+
+    configure(roots[0], [command("Observe", "new", { observationMode: "write" })]);
+    await main.refreshTargets();
+    main.ensureProjectProvider(main.targets[0]);
+    expect(main.manager.providers.get(selected.providerId).provider).toBe(provider);
+    expect(provider.observationMode).toBe("write");
+    expect(main.manager.getJobs()).toEqual([]);
+  });
+
   it("distinguishes duplicate names and preserves their IDs after unrelated insertions", async () => {
     const first = command("Check", "one"),
       second = command("Check", "two");

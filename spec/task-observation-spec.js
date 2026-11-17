@@ -5,7 +5,7 @@ const childProcess = require("node:child_process");
 const { EventEmitter } = require("node:events");
 const { Disposable } = require("lumine");
 
-describe("Content-aware task observation", () => {
+describe("Settled task source observation", () => {
   let manager, directory, source, dependency, pdf, provider, handles, children, errors, readiness;
   const pause = (milliseconds = 350) => new Promise((resolve) => setTimeout(resolve, milliseconds));
   const key = (filePath) => {
@@ -46,6 +46,9 @@ describe("Content-aware task observation", () => {
         },
         change: (action = "updated") => {
           if (!disposed) events.emit("change", [{ action, path: filePath }]);
+        },
+        recover: () => {
+          if (!disposed) events.emit("invalidate", { path: filePath, generation: 2 });
         },
         get disposed() {
           return disposed;
@@ -131,29 +134,54 @@ describe("Content-aware task observation", () => {
     return nextExecution();
   }
 
-  for (const change of [
-    "same-byte save",
-    "timestamp touch",
-    "atomic replacement",
-    "delayed hint",
-  ]) {
-    it(`does not queue a redundant run for a ${change} during execution`, async () => {
+  function rewrite(change, contents) {
+    if (change === "same-byte save") fs.writeFileSync(source, contents);
+    else if (change === "timestamp touch") {
+      const stat = fs.statSync(source);
+      fs.utimesSync(source, stat.atime, new Date(stat.mtimeMs + 2000));
+    } else {
+      const replacement = path.join(directory, "replacement.tex");
+      fs.writeFileSync(replacement, contents);
+      fs.renameSync(replacement, source);
+    }
+    hint();
+  }
+
+  for (const change of ["same-byte save", "timestamp touch", "atomic replacement"]) {
+    for (const running of [false, true]) {
+      it(`runs once for a ${change} ${running ? "after the current execution" : "while idle"}`, async () => {
+        await observe();
+        const first = running ? await changedExecution() : null;
+        rewrite(change, running ? "first revision\n" : "original source\n");
+        if (first) {
+          await pause(250);
+          expect(children.length).toBe(1);
+          await finish(first);
+        }
+        const next = await nextExecution(running ? 2 : 1);
+        hint();
+        await pause(200);
+        await finish(next);
+        await pause();
+        expect(children.length).toBe(running ? 2 : 1);
+        expect(manager.getJobs()).toEqual(first ? [first, next] : [next]);
+        expect(errors).not.toHaveBeenCalled();
+      });
+    }
+  }
+
+  for (const recovery of [false, true]) {
+    it(`ignores ${recovery ? "watcher recovery" : "reads and duplicate or delayed hints"} without a new source revision`, async () => {
       await observe();
       const job = await changedExecution();
-      if (change === "same-byte save") fs.writeFileSync(source, "first revision\n");
-      else if (change === "timestamp touch") {
-        const stat = fs.statSync(source);
-        fs.utimesSync(source, stat.atime, new Date(stat.mtimeMs + 2000));
-      } else if (change === "atomic replacement") {
-        const replacement = path.join(directory, "replacement.tex");
-        fs.writeFileSync(replacement, "first revision\n");
-        fs.renameSync(replacement, source);
+      if (recovery) handles.find((handle) => key(handle.path) === key(source)).recover();
+      else {
+        fs.readFileSync(source, "utf8");
+        hint();
       }
-      hint();
       await pause(200);
       hint();
       await pause(200);
-      expect(children.length).toBe(1);
       await finish(job);
       await pause();
       expect(children.length).toBe(1);
@@ -164,7 +192,7 @@ describe("Content-aware task observation", () => {
 
   for (const transient of ["missing", "empty", "partial"]) {
     for (const completesDuringSave of [false, true]) {
-      it(`ignores a transient ${transient} source restored with identical bytes ${completesDuringSave ? "across completion" : "during execution"}`, async () => {
+      it(`coalesces a transient ${transient} write burst with identical final bytes ${completesDuringSave ? "across completion" : "during execution"}`, async () => {
         await observe();
         const job = await changedExecution();
         if (transient === "missing") fs.unlinkSync(source);
@@ -179,10 +207,13 @@ describe("Content-aware task observation", () => {
           await pause(250);
           await finish(job);
         }
-        await pause();
         expect(fs.readFileSync(source, "utf8")).toBe("first revision\n");
-        expect(children.length).toBe(1);
-        expect(manager.getJobs()).toEqual([job]);
+        const next = await nextExecution(2);
+        hint();
+        await finish(next);
+        await pause();
+        expect(children.length).toBe(2);
+        expect(manager.getJobs()).toEqual([job, next]);
         expect(errors).not.toHaveBeenCalled();
       });
     }
@@ -205,7 +236,7 @@ describe("Content-aware task observation", () => {
     expect(manager.getJobs()).toEqual([first, second]);
   });
 
-  it("retains a verified edit during execution even when the source then returns to its baseline", async () => {
+  it("retains a settled write during execution when the source returns to its previous contents", async () => {
     const entry = await observe();
     const first = await changedExecution();
     write(source, "transient changed revision\n");
@@ -219,6 +250,54 @@ describe("Content-aware task observation", () => {
     await finish(second);
     await pause();
     expect(children.length).toBe(2);
+    expect(manager.getJobs()).toEqual([first, second]);
+  });
+
+  for (const running of [false, true]) {
+    it(`optionally ignores a same-byte save ${running ? "during execution" : "while idle"} while accepting content edits`, async () => {
+      provider.observationMode = "content";
+      await observe();
+      const first = running ? await changedExecution() : null;
+      write(source, running ? "first revision\n" : "original source\n");
+      await pause(250);
+      if (first) await finish(first);
+      await pause();
+      expect(children.length).toBe(running ? 1 : 0);
+      write(source, "new content in optional content mode\n");
+      const next = await nextExecution(running ? 2 : 1);
+      await finish(next);
+      await pause();
+      expect(manager.getJobs()).toEqual(first ? [first, next] : [next]);
+    });
+  }
+
+  it("keeps per-task modes independent and resets only an explicitly changed task", async () => {
+    provider.observationMode = "content";
+    await observe();
+    const request = { providerId: provider.id, filePath: dependency };
+    expect(manager.setObserved({ ...request, observationMode: "write" }, true)).toBeTrue();
+    let entry = manager.observed.get(manager.key(provider.id, dependency));
+    await entry.observation.ready;
+    await entry.observation.acknowledge();
+    expect(manager.setObserved(request, true)).toBeFalse();
+    write(source, "original source\n");
+    write(dependency, "original chapter\n");
+    const first = await nextExecution();
+    expect(first.filePath).toBe(dependency);
+    await finish(first);
+    await pause();
+    expect(children.length).toBe(1);
+    expect(manager.setObserved({ ...request, observationMode: "content" }, true)).toBeTrue();
+    entry = manager.observed.get(manager.key(provider.id, dependency));
+    await entry.observation.ready;
+    write(dependency, "original chapter\n");
+    await pause();
+    expect(children.length).toBe(1);
+    write(source, "a real change in the other task\n");
+    const second = await nextExecution(2);
+    expect(second.filePath).toBe(source);
+    await finish(second);
+    await pause();
     expect(manager.getJobs()).toEqual([first, second]);
   });
 
@@ -354,22 +433,15 @@ describe("Content-aware task observation", () => {
       const initialRead = new Promise((resolve) => {
         readFinished = resolve;
       });
-      const open = fs.promises.open.bind(fs.promises);
+      const stat = fs.promises.stat.bind(fs.promises);
       let captured = false;
-      spyOn(fs.promises, "open").and.callFake(async (...args) => {
-        const file = await open(...args);
+      spyOn(fs.promises, "stat").and.callFake(async (...args) => {
+        const revision = await stat(...args);
         if (!captured && key(args[0]) === key(source)) {
           captured = true;
-          const close = file.close.bind(file);
-          spyOn(file, "close").and.callFake(async () => {
-            try {
-              return await close();
-            } finally {
-              readFinished();
-            }
-          });
+          readFinished();
         }
-        return file;
+        return revision;
       });
       manager.setObserved({ providerId: provider.id, filePath: source }, true);
       const stopped = manager.run({ providerId: provider.id, filePath: source });
