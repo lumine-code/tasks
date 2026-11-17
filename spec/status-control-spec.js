@@ -437,6 +437,7 @@ describe("Shared Tasks status control", () => {
     main.manager.setObserved({ providerId: "first", filePath: source }, true);
     expect(handles.length).toBe(1);
     await handles[0].ready;
+    await main.manager.observed.get(main.manager.key("first", source)).observation.ready;
     const ensurePanel = spyOn(main, "ensurePanel").and.callThrough();
     fs.writeFileSync(source, "changed externally\n");
     await window.conditionPromise(() => children.length === 1, "an observed build to start");
