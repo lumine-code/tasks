@@ -1,18 +1,18 @@
 {
   "title": "build",
-  "description": "Run a project target and inspect its actual process output.",
-  "recordedOn": "2026-10-30",
-  "sourceRevision": "b3c1b961b01600206c5f7fc9c02b42e374f9e19c",
-  "themeSourceRevision": "9405c9be05928ac26aafb432733ab89309b4e712",
+  "description": "Track active tasks and inspect a completed build log.",
+  "recordedOn": "2026-11-07",
+  "sourceRevision": "a4923d0b8f1a91ca36ece6069883c030ffe8d2fb",
+  "themeSourceRevision": "c63e492937bbcb7cb1a021cdc1c0284f990ac4d5",
   "mode": "normal",
   "fontSettings": "default",
   "scenario": "demo.js",
-  "recipeHash": "da813280dceffeb5f7fb28f2fc10f071be16d174203a63eb39de328643c69f5c",
+  "recipeHash": "8746ec11dda90cc0ff3f3e1bd8c4d83702ad84ebf6d4f048350ec223f40d9951",
   "environment": {
     "platform": "win32",
     "arch": "x64",
-    "electron": "45.0.0",
-    "chrome": "156.0.8078.48",
+    "electron": "45.2.3",
+    "chrome": "156.0.8078.80",
     "devicePixelRatio": 1,
     "locale": "en-GB",
     "fontFamily": "Fira Code, Menlo, DejaVu Sans Mono, Consolas, monospace",
@@ -24,32 +24,32 @@
   "privacy": { "version": 1, "location": "neutral", "textChecked": true },
   "sources": {
     "editor": {
-      "revision": "aec7c10ba95eb7a718ccab2b7fd4d83eb691f2c0",
-      "dirty": true,
-      "workingTreeHash": "853095b6b2f35c1dd056c2db9a52e1dd49901ed528964a261407acd71e03884b"
+      "revision": "3709351ae9bd91a9e16eee6f03a4e26a3d86b443",
+      "dirty": false,
+      "workingTreeHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
     },
     "package": {
-      "revision": "b3c1b961b01600206c5f7fc9c02b42e374f9e19c",
-      "dirty": false,
-      "workingTreeHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      "revision": "a4923d0b8f1a91ca36ece6069883c030ffe8d2fb",
+      "dirty": true,
+      "workingTreeHash": "857f0a47e9fab1bff071c69677624e68acd7bfde1256fee77a0fb892420dc2d7"
     },
     "build": {
-      "revision": "b3c1b961b01600206c5f7fc9c02b42e374f9e19c",
-      "dirty": false,
-      "workingTreeHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      "revision": "a4923d0b8f1a91ca36ece6069883c030ffe8d2fb",
+      "dirty": true,
+      "workingTreeHash": "857f0a47e9fab1bff071c69677624e68acd7bfde1256fee77a0fb892420dc2d7"
     },
     "busy-signal": {
-      "revision": "87cc52ef2f69b0a2882040edf77ed3174f129438",
+      "revision": "45a146704ba7cf000171e95eaf64f56ba8e29d84",
       "dirty": false,
       "workingTreeHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
     },
     "language-javascript": {
-      "revision": "bfacc1612a6b0b569fd801200250e56f4f30e568",
+      "revision": "d1ed20c11a8649b2aac0ccc03403f65b86663c43",
       "dirty": false,
       "workingTreeHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
     },
     "one-theme": {
-      "revision": "9405c9be05928ac26aafb432733ab89309b4e712",
+      "revision": "c63e492937bbcb7cb1a021cdc1c0284f990ac4d5",
       "dirty": false,
       "workingTreeHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
     }
@@ -67,10 +67,10 @@
   "images": [
     {
       "file": "demo.png",
-      "label": "Run a project target and inspect its actual process output.",
+      "label": "Track active tasks and inspect a completed build log.",
       "width": 1100,
       "height": 730,
-      "sha256": "5a62f28b1d8b2d9e7b846e3f9719ab1775e40aebda4728c54ac1f295e0596696"
+      "sha256": "f6a703a61644a6f55eee2793ac10a77def5c52749b05bef572d396557b6a0f9d"
     }
   ]
 }
