@@ -20,7 +20,9 @@
     "home": "core:move-to-top",
     "end": "core:move-to-bottom",
     "pageup": "core:page-up",
-    "pagedown": "core:page-down"
+    "pagedown": "core:page-down",
+    "space": "core:page-down",
+    "shift-space": "core:page-up"
   },
   ".platform-win32 .tasks-panel .task-output:focus, .platform-linux .tasks-panel .task-output:focus": {
     "ctrl-home": "core:move-to-top",

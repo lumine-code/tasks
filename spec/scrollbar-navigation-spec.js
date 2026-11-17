@@ -154,6 +154,8 @@ describe("Tasks scrollbar navigation", () => {
     ["Down", [], 1, "line"],
     ["PageUp", [], -1, "page"],
     ["PageDown", [], 1, "page"],
+    [" ", [], 1, "page"],
+    [" ", ["shift"], -1, "page"],
     ["Home", [], -1, "edge"],
     ["End", [], 1, "edge"],
     ...(process.platform === "darwin"
@@ -167,7 +169,7 @@ describe("Tasks scrollbar navigation", () => {
         ]),
   ];
   for (const [keyCode, modifiers, direction, unit] of logKeys) {
-    it(`scrolls the log and reveals its unchanged boundary for ${[...modifiers, keyCode].join("+")}`, async () => {
+    it(`scrolls the log and reveals its unchanged boundary for ${[...modifiers, keyCode === " " ? "Space" : keyCode].join("+")}`, async () => {
       await showOutput();
       const maximum = panel.output.scrollHeight - panel.output.clientHeight;
       panel.output.scrollTop = Math.floor(maximum / 2);
@@ -314,14 +316,14 @@ describe("Tasks scrollbar navigation", () => {
     await expectActivity(controllers[1]);
   });
 
-  for (const gesture of ["Enter", "click"]) {
+  for (const gesture of ["Enter", "Space", "click"]) {
     it(`reveals history once when Back is activated with native ${gesture}`, async () => {
       panel.showJob(row().dataset.jobId);
       await window.waitForFrames(
         () => controllers[1].geometry?.visible && controllers[0].geometry?.visible === false,
         { description: "details to settle before activating the native Back button" },
       );
-      if (gesture === "Enter") {
+      if (gesture !== "click") {
         await ipcRenderer.invoke("lumine:window", "focus");
         await window.waitForFrames(() => document.hasFocus(), {
           description: "native keyboard input to belong to the spec window",
@@ -331,11 +333,11 @@ describe("Tasks scrollbar navigation", () => {
       }
       const reveal = spyOn(lumine.scrollbars, "reveal").and.callThrough();
 
-      if (gesture === "Enter") {
+      if (gesture !== "click") {
         for (const type of ["keyDown", "char", "keyUp"])
           await ipcRenderer.invoke("lumine:window", "sendInputEvent", {
             type,
-            keyCode: "Enter",
+            keyCode: gesture === "Space" ? " " : "Enter",
           });
       } else panel.backButton.click();
 
