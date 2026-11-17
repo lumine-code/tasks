@@ -61,7 +61,8 @@
   white-space: nowrap;
 }
 
-.tasks-panel .tasks-panel-actions {
+.tasks-panel .tasks-panel-actions,
+.tasks-panel .tasks-panel-provider-actions {
   display: flex;
   flex: none;
   gap: calc(var(--ui-spacing) / 2);

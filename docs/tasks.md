@@ -31,6 +31,8 @@ interface TaskService {
   getJob(request: { providerId: string; filePath: string }): Job | null;
   getJobs(filter?: DocumentFilter & { activeOnly?: boolean }): Job[];
   getLogs(): Job[];
+  getActions(job: Job): TaskActionInfo[];
+  runAction(job: Job, id: string): Promise<boolean>;
   stop(request: { providerId: string; filePath: string }): boolean;
   stopAll(filter?: ProviderFilter): number;
   removeLog(id: string): boolean;
@@ -98,6 +100,17 @@ interface TaskResult {
   diagnostics?: Diagnostic[];
   artifacts?: Artifact[];
   failed?: boolean;
+  actions?: TaskAction[];
+}
+
+interface TaskActionInfo {
+  id: string;
+  label: string;
+  description?: string;
+}
+
+interface TaskAction extends TaskActionInfo {
+  run(job: Job, signal: AbortSignal): void | boolean | Promise<void | boolean>;
 }
 
 interface Artifact {
@@ -172,6 +185,16 @@ consumeTasks(tasks) {
       args: [filePath],
       artifacts: [{ path: filePath + ".pdf", kind: "pdf" }],
     }),
+    collectResult: () => ({
+      actions: [{
+        id: "copy-source-path",
+        label: "Copy Source Path",
+        run: (job, signal) => {
+          signal.throwIfAborted();
+          lumine.clipboard.write(job.filePath);
+        },
+      }],
+    }),
   });
 }
 
@@ -193,6 +216,14 @@ Requests always name a provider and source path; the service never substitutes t
 Document commands save the requested source before calling `run` when root discovery depends on its contents. The Tasks target command applies Save Before Running before resolving the source. Provider preparation saves any additional canonical source editor required by the compiler and checks its abort signal after asynchronous saves. This keeps synchronous job identity tied to the actual document root.
 
 Jobs progress through `preparing`, `running` and `collecting`, then reach `passed`, `failed` or `cancelled`. `completion` resolves with the terminal job. `collectResult` runs after the child closes and its streams drain. Providers can flag a nonzero semantic result through `failed` even when the process exits successfully. Async preparation and result collection receive an abort signal; cancelled or retired work cannot publish a later result.
+
+`TaskResult.actions` contributes operations for that execution's result, shared by the terminal notification and its detail toolbar. Start notifications have no actions. Each action requires a nonempty `id`, a nonempty plain-text `label` and a `run` callback; IDs are unique within one result, and declaration order determines display order. An optional plain-text `description` supplies the detail button's tooltip. Invalid descriptors fail result collection and publish no actions. Providers decide which actions apply to each result and check external resources before contributing them; expected artifacts alone do not prove an output exists.
+
+`getActions(job)` synchronously returns fresh metadata objects without callbacks, provider calls or I/O. It lists actions only for the exact retained terminal job while its original provider registration is live. Historical jobs remain actionable after another execution of the same task starts; lookups never substitute the latest job or a replacement provider with the same ID. Result actions are held by the manager, separately from the public job data, and cannot be added through JSON task configuration.
+
+`runAction(job, id)` uses the same identity and lifetime checks, then invokes the captured callback with that exact job and a dedicated action-lifetime signal. It returns `true` when the callback finishes without returning `false`, and `false` for unavailable, already-running or retired actions. A second concurrent invocation of the same action on one job returns `false` without running it again. Providers return `false` when an operation is unavailable and throw for an operation failure; Tasks reports a live failure once through its normal notification error channel and returns `false`. A successful notification action dismisses its notification, without opening Tasks or acknowledging its log unless that action explicitly does so.
+
+The action signal is independent of compiler cancellation and is aborted when the log is removed or pruned, its provider registration retires, or Tasks is disposed. Callbacks recheck external resources at invocation and check the signal after asynchronous work and before side effects. Tasks stops awaiting retired actions and suppresses their late errors. Removing a provider immediately withdraws its detail buttons; old notification buttons remain inert. The manager owns action cleanup, and consumers need not register separate UI contributions.
 
 Job objects retain their identity and their fields change over time. Consumers treat them as read-only and dispose event subscriptions when the service edge disappears. `onDidChangeJob` includes creation, output and state changes. `onDidStartJob` runs after preparation declares expected artifacts and before spawning the compiler. `onDidFinishJob` reports terminal jobs. Artifact viewers use active jobs and their expected paths to pause file reloads while output is being written, including when the output does not exist yet. Expected artifacts do not guarantee that a failed or cancelled build produced a usable file.
 

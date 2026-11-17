@@ -21,9 +21,12 @@ describe("Tasks execution history and details", () => {
     manager = {
       getTargets: () => targets.slice(),
       getJobs: () => jobs.slice(),
+      getActions: (job) => (ACTIVE.has(job.state) ? [] : job.actions || []),
+      runAction: jasmine.createSpy("runAction").and.resolveTo(true),
       onDidChangeTargets: (callback) => events.on("targets", callback),
       onDidChangeJob: (callback) => events.on("change", callback),
       onDidFinishJob: (callback) => events.on("finish", callback),
+      onDidChangeProviders: (callback) => events.on("providers", callback),
       removeLog: jasmine.createSpy("removeLog").and.callFake((id) => {
         const index = jobs.findIndex((job) => job.id === id);
         if (index < 0 || ACTIVE.has(jobs[index].state)) return false;
@@ -387,6 +390,7 @@ describe("Tasks execution history and details", () => {
       panel.toggleLogButton,
       panel.copyButton,
       panel.removeButton,
+      panel.providerActions,
       panel.muteButton,
       panel.rerunButton,
     ]);
@@ -935,5 +939,49 @@ describe("Tasks execution history and details", () => {
     expect(panel.rerunButton.hidden).toBeTrue();
     expect(panel.title.textContent).toBe("");
     expect(panel.title.hidden).toBeTrue();
+  });
+
+  it("shows provider actions for the selected result using native buttons and tooltips", async () => {
+    const first = addJob(target("Compile"), "passed");
+    first.actions = [{ id: "open-pdf", label: "Open PDF", description: "Open this result's PDF." }];
+    const second = addJob(target("Export"), "passed");
+    second.actions = [{ id: "open-report", label: "Open Report" }];
+    openPanel();
+    expect(panel.providerActions.hidden).toBeTrue();
+    panel.selectJob(first);
+    const button = panel.providerActions.firstElementChild;
+    expect(button.textContent).toBe("Open PDF");
+    expect(button.classList.contains("btn")).toBeTrue();
+    expect(tooltipTitle(button)).toBe("Open this result's PDF.");
+    button.click();
+    expect(manager.runAction).toHaveBeenCalledOnceWith(first, "open-pdf");
+    await Promise.resolve();
+    panel.selectJob(second);
+    expect(panel.providerActions.textContent).toBe("Open Report");
+    expect(lumine.tooltips.findTooltips(button)).toEqual([]);
+    button.click();
+    expect(manager.runAction).toHaveBeenCalledTimes(1);
+    panel.showList();
+    expect(panel.providerActions.childElementCount).toBe(0);
+    expect(panel.providerActions.hidden).toBeTrue();
+  });
+
+  it("refreshes result actions on completion and removes retired provider controls", () => {
+    const job = addJob(target("Compile"));
+    openPanel();
+    panel.selectJob(job);
+    expect(panel.providerActions.hidden).toBeTrue();
+    job.state = "passed";
+    job.actions = [{ id: "open-pdf", label: "Open PDF" }];
+    events.emit("finish", job);
+    const button = panel.providerActions.firstElementChild;
+    expect(button.textContent).toBe("Open PDF");
+    job.log.append("more retained output\n");
+    expect(panel.providerActions.firstElementChild).toBe(button);
+    job.actions = [];
+    events.emit("providers");
+    expect(panel.providerActions.hidden).toBeTrue();
+    expect(panel.providerActions.childElementCount).toBe(0);
+    expect(lumine.tooltips.findTooltips(button)).toEqual([]);
   });
 });

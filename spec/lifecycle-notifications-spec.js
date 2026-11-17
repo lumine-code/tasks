@@ -116,9 +116,7 @@ describe("Tasks lifecycle notifications", () => {
     expect(notices.addInfo).toHaveBeenCalledTimes(1);
     expect(notices.addInfo.calls.mostRecent().args[0]).toBe("Task started: Fixture");
     expect(notices.addInfo.calls.mostRecent().args[1].detail).toContain(job.filePath);
-    expect(notices.addInfo.calls.mostRecent().args[1].buttons.map((action) => action.text)).toEqual(
-      ["Open log"],
-    );
+    expect(notices.addInfo.calls.mostRecent().args[1].buttons).toBeUndefined();
     expect(run()).toBe(job);
     expect(notices.addInfo).toHaveBeenCalledTimes(1);
     await tick();
@@ -161,6 +159,52 @@ describe("Tasks lifecycle notifications", () => {
     expect(options.detail).toContain(job.filePath);
     expect(options.detail).toContain("Compiler is unavailable");
     expect(notices.addSuccess).not.toHaveBeenCalled();
+  });
+
+  for (const code of [0, 7]) {
+    it(`runs a provider action from a ${code === 0 ? "successful" : "failed"} result notification`, async () => {
+      const action = jasmine.createSpy("open result").and.resolveTo(true);
+      provider({
+        collectResult: () => ({
+          actions: [{ id: "open-result", label: "Open Result", run: action }],
+        }),
+      });
+      const job = await complete(code);
+      const notice = (code === 0 ? notices.addSuccess : notices.addError).calls.mostRecent();
+      expect(notices.addInfo.calls.mostRecent().args[1].buttons).toBeUndefined();
+      expect(notice.args[1].buttons.map((entry) => entry.text)).toEqual([
+        "Open log",
+        "Mark as read",
+        "Open Result",
+      ]);
+
+      await button(notice, "Open Result").onDidClick();
+
+      expect(action).toHaveBeenCalledTimes(1);
+      expect(action.calls.mostRecent().args[0]).toBe(job);
+      expect(action.calls.mostRecent().args[1].aborted).toBeFalse();
+      expect(notice.returnValue.dismiss).toHaveBeenCalledTimes(1);
+      expect(main.panel).toBeNull();
+      expect([...main.unseenJobs.values()]).toEqual([job]);
+    });
+  }
+
+  it("keeps a result notification when its provider action fails or retires", async () => {
+    const action = jasmine.createSpy("open result").and.rejectWith(new Error("Output was removed"));
+    const lease = provider({
+      collectResult: () => ({
+        actions: [{ id: "open-result", label: "Open Result", run: action }],
+      }),
+    });
+    await complete();
+    const notice = notices.addSuccess.calls.mostRecent();
+    await button(notice, "Open Result").onDidClick();
+    expect(notices.addError.calls.mostRecent().args[1].detail).toBe("Output was removed");
+    expect(notice.returnValue.dismiss).not.toHaveBeenCalled();
+    lease.dispose();
+    await button(notice, "Open Result").onDidClick();
+    expect(action).toHaveBeenCalledTimes(1);
+    expect(notice.returnValue.dismiss).not.toHaveBeenCalled();
   });
 
   for (const code of [0, 7]) {
@@ -241,41 +285,6 @@ describe("Tasks lifecycle notifications", () => {
     }
   });
 
-  it("opens the running execution captured by a start notification rather than another selected log", async () => {
-    provider();
-    const first = await started();
-    first.process.stdout.emit("data", Buffer.from("first execution output\n"));
-    const notice = notices.addInfo.calls.mostRecent();
-    const secondSource = path.join(directory, "second.txt");
-    const second = main.manager.run({
-      providerId: "notifications-fixture",
-      filePath: secondSource,
-    });
-    await window.conditionPromise(() => Boolean(second.process), "the second execution to start");
-    const panel = main.ensurePanel();
-    panel.selectJob(second);
-    const dock = lumine.workspace.getBottomDock();
-    dock.hide();
-
-    await button(notice, "Open log").onDidClick();
-
-    expect(main.panel).toBe(panel);
-    expect(panel.getSelectedJob()).toBe(first);
-    expect(panel.mode).toBe("details");
-    expect(panel.getText()).toContain("first execution output");
-    expect(dock.isVisible()).toBeTrue();
-    expect(panel.output.contains(document.activeElement)).toBeTrue();
-    expect(notice.returnValue.dismiss).toHaveBeenCalledTimes(1);
-    expect(first.state).toBe("running");
-    expect(second.state).toBe("running");
-    second.process.emit("close", 7, null);
-    await second.completion;
-    expect([...main.unseenJobs.values()]).toEqual([second]);
-    first.process.emit("close", 0, null);
-    await first.completion;
-    expect([...main.unseenJobs.values()]).toEqual([second]);
-  });
-
   it("opens a finished notification's exact log and acknowledges only that execution", async () => {
     provider();
     const failed = await complete(7);
@@ -349,7 +358,6 @@ describe("Tasks lifecycle notifications", () => {
     it(`ignores notification actions after their execution log was ${removal}`, async () => {
       provider();
       const first = await complete();
-      const startNotice = notices.addInfo.calls.mostRecent();
       const finishNotice = notices.addSuccess.calls.mostRecent();
       if (removal === "removed") main.manager.removeLog(first.id);
       else lumine.config.set("tasks.maxHistory", 1);
@@ -359,7 +367,6 @@ describe("Tasks lifecycle notifications", () => {
       const ensurePanel = spyOn(main, "ensurePanel").and.callThrough();
       lumine.workspace.getBottomDock().hide();
 
-      await button(startNotice, "Open log").onDidClick();
       await button(finishNotice, "Open log").onDidClick();
       await button(finishNotice, "Mark as read").onDidClick();
 
@@ -374,7 +381,6 @@ describe("Tasks lifecycle notifications", () => {
   it("ignores retained buttons from a retired generation even when the new execution reuses its id", async () => {
     provider();
     const previous = await complete();
-    const startNotice = notices.addInfo.calls.mostRecent();
     const finishNotice = notices.addSuccess.calls.mostRecent();
     await lumine.packages.deactivatePackage("tasks");
     main = (await lumine.packages.activatePackage("tasks")).mainModule;
@@ -384,7 +390,6 @@ describe("Tasks lifecycle notifications", () => {
     const ensurePanel = spyOn(main, "ensurePanel").and.callThrough();
     lumine.workspace.getBottomDock().hide();
 
-    await button(startNotice, "Open log").onDidClick();
     await button(finishNotice, "Open log").onDidClick();
     await button(finishNotice, "Mark as read").onDidClick();
 

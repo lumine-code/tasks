@@ -44,9 +44,11 @@ describe("Tasks scrollbar navigation", () => {
     manager = {
       getTargets: () => [definition],
       getJobs: () => jobs.slice(),
+      getActions: () => [],
       onDidChangeTargets: (callback) => events.on("targets", callback),
       onDidChangeJob: (callback) => events.on("change", callback),
       onDidFinishJob: (callback) => events.on("finish", callback),
+      onDidChangeProviders: (callback) => events.on("providers", callback),
       removeLog: jasmine.createSpy("removeLog"),
     };
     actions = { runTarget: jasmine.createSpy("runTarget") };
