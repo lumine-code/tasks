@@ -413,11 +413,7 @@ describe("Settled task source observation", () => {
     stopped.stop();
     write(source, "a new change immediately after stopping\n");
     await stopped.completion;
-    await pause();
-    expect(children.length).toBe(2);
-    if (children.length !== 2) return;
-    const next = manager.getJobs().at(-1);
-    expect(next.reason).toBe("save");
+    const next = await nextExecution(2);
     await finish(next);
     await pause();
     expect(stopped.state).toBe("cancelled");
@@ -452,16 +448,17 @@ describe("Settled task source observation", () => {
       if (savesAfterStop) write(source, "a new change after stopping during startup\n");
       arm();
       await stopped.completion;
-      await pause();
       expect(stopped.state).toBe("cancelled");
-      expect(children.length).toBe(savesAfterStop ? 1 : 0);
-      if (savesAfterStop && children.length === 1) {
-        const next = manager.getJobs().at(-1);
-        expect(next.reason).toBe("save");
+      if (savesAfterStop) {
+        const next = await nextExecution();
         await finish(next);
         await pause();
         expect(manager.getJobs()).toEqual([stopped, next]);
-      } else expect(manager.getJobs()).toEqual([stopped]);
+      } else {
+        await pause();
+        expect(children.length).toBe(0);
+        expect(manager.getJobs()).toEqual([stopped]);
+      }
       expect(errors).not.toHaveBeenCalled();
     });
   }
