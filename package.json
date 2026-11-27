@@ -132,7 +132,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@lumine-code/fs-temp": "github:lumine-code/fs-temp#451a932d0abc306a760884156bd2d4ae3f10e93e",
+    "@lumine-code/fs-temp": "github:lumine-code/fs-temp#236a6068f52b8b613a2c9ccea1fbc3902a55a89f",
     "eslint": "^10.15.0",
     "eslint-config-prettier": "^10.1.9",
     "eslint-plugin-n": "^18.6.0",
